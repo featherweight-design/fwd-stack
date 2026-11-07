@@ -58,6 +58,23 @@ Use it two ways:
 - [ ] **Crons at 15 minutes or slower, enforced by a cadence guard in CI.** The guard is a test that parses `vercel.json` and fails on a schedule under the floor, with an allowlist that records a reason per path (the extension may name a reference implementation). Use off-the-hour minutes (`17 * * * *`). _Why:_ the cron's own invocation cost is pennies. The cost is the database it keeps awake (see Neon).
 - [ ] **Set a deployment retention policy** on each project. Keep enough recent production deployments for Instant Rollback. _Why:_ a thousand deployments a month pile up, and retention is the setting that bounds them.
 
+## Staging footprint
+
+Staging exists to be checked before a release, not to run all day. Neon bills compute for every minute a database is awake, and a staging database that a cron wakes every few minutes never sleeps. In October, The 99's staging compute was about the same as its production compute, for an environment nobody used most of the day.
+
+- [ ] **Staging databases and crons wake only on demand or once a day.** Never on a sub-hourly schedule. On demand means a person, a deploy or a test run asks for it.
+      _Exception:_ an app that promotes to production only after a green staging end-to-end run (Concert Crawl does) wakes staging for each promotion. That is on demand too.
+- [ ] **Staging crons do nothing by default.** Each cron handler checks the environment and returns early on staging unless an explicit override is set. The 99 uses `STAGING_CRONS='run'`. Set the override only while you are testing a cron, then unset it.
+      _Why:_ a schedule in `vercel.json` applies to every project that deploys the file, staging included, so the default has to be off in the code.
+- [ ] **Staging Vercel projects build on a fixed Standard build machine, with on-demand concurrent builds off.**
+      _Why:_ a larger machine or extra concurrent builds buy speed nobody waits for on staging, and both are billed.
+- [ ] **Preview deployments stay off** (see Vercel above).
+
+## Secrets inventory (names only)
+
+- [ ] **Each app keeps `docs/secrets-inventory.md`**, a list of every secret by NAME, never by value. Each row gives where the secret lives (Vercel project and environment, GitHub Actions secret or variable, local `.env.local`), what reads it, and who owns rotating it. Start from [`secrets-inventory-template.md`](secrets-inventory-template.md) in this skill's folder. Update it in the same PR that adds, moves or removes a secret.
+      _Why:_ when a key leaks or expires, the first question is where else it is set and what breaks when it changes. A names-only list answers that without becoming a secret itself. A dedicated secrets manager was considered and dropped for now, since two apps do not need one; revisit when a third project arrives.
+
 ## Sentry (errors only)
 
 - [ ] **Errors only:** no tracing, no replay, no logs. Pin `@sentry/nextjs` exactly. _Why:_ the other products are the billed volume, and nothing here reads them.
