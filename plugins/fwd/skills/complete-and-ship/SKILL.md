@@ -676,7 +676,9 @@ The plan file is the resume token. A fresh session invoking `/complete-and-ship`
 
 ### On hitting a turn limit mid-task
 
-If you sense the session is running long (many turns, repeated compaction warnings), prioritize:
+While the user is away (the away window is open), context size and compaction are never a limit: keep the plan file current at each task boundary and keep working, since the harness compacts context automatically. Skip the list below for them.
+
+Otherwise, if you sense the session is running long (many turns, repeated compaction warnings), prioritize:
 
 1. Commit whatever is done
 2. Update the plan file checkboxes to reflect true state
