@@ -42,7 +42,7 @@ test('runs the newest installed gate when ~/.claude/fwd links into the cache', (
     versions: ['0.1.13', '0.1.16'],
     link: (_, c) => join(c, '0.1.16'),
   });
-  assert.equal(resolveGate(at('0.1.13'), h), at('0.1.16'));
+  assert.equal(resolveGate(at('0.1.13'), h, {}), at('0.1.16'));
 });
 
 test('falls back to the bundled gate when there is no link', () => {
@@ -114,4 +114,23 @@ test('compareVersions orders dotted numbers and refuses anything else', () => {
   assert.equal(compareVersions('0.1.16', '0.1.16'), 0);
   assert.equal(compareVersions('0.2.0', '0.1.16'), 1);
   assert.equal(compareVersions('dev', '0.1.16'), null);
+});
+
+test('follows CLAUDE_CONFIG_DIR to the link, as hooks/fwd-link.mjs does', () => {
+  const { h, at } = home({
+    versions: ['0.1.13', '0.1.16'],
+    link: (_, c) => join(c, '0.1.16'),
+  });
+  const elsewhere = realpathSync(mkdtempSync(join(tmpdir(), 'gate-home-')));
+  assert.equal(
+    resolveGate(at('0.1.13'), elsewhere, {
+      CLAUDE_CONFIG_DIR: join(h, '.claude'),
+    }),
+    at('0.1.16'),
+  );
+  assert.equal(
+    resolveGate(at('0.1.13'), h, { CLAUDE_CONFIG_DIR: elsewhere }),
+    at('0.1.13'),
+    'no link in the configured folder: the bundled gate',
+  );
 });

@@ -4,7 +4,7 @@
 // the plugin version that session started with. A gate fix released later never reached it until
 // someone ran /reload-plugins. So the hook asks this module first, at call time, and runs the
 // newest installed gate instead: ~/.claude/fwd/skills/pr-review/pr-gate.mjs, the link kept
-// pointing at the newest version in the plugin cache.
+// pointing at the newest version in the plugin cache (by hooks/fwd-link.mjs).
 //
 // The link is only trusted when it really resolves into the fwd plugin cache. Anything else (no
 // link, a link into a checkout, a link to an OLDER version than the one bundled with this
@@ -41,12 +41,15 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-export function resolveGate(bundled, home = homedir()) {
-  const link = join(home, '.claude', 'fwd', ...GATE);
+export function resolveGate(bundled, home = homedir(), env = process.env) {
+  // The same folders hooks/fwd-link.mjs keeps the link in.
+  const config = env.CLAUDE_CONFIG_DIR || join(home, '.claude');
+  const plugins = env.CLAUDE_CODE_PLUGIN_CACHE_DIR || join(config, 'plugins');
+  const link = join(config, 'fwd', ...GATE);
   try {
     if (!existsSync(link)) return bundled;
     const real = realpathSync(link);
-    const cache = realpathSync(join(home, '.claude', 'plugins', 'cache'));
+    const cache = realpathSync(join(plugins, 'cache'));
     const newest = cacheEntry(real, cache);
     if (newest === null) return bundled;
     const own = existsSync(bundled)

@@ -233,9 +233,10 @@ State the skills keep, such as the pre-open pass ledger, lives in the plugin's d
 
 ### Setting up a machine
 
-`machine/switch.sh` installs the plugin and makes the machine consistent. It works on a fresh
-machine, on one that ran these skills from `~/.claude/skills`, and on one already switched (it
-updates the plugin). Backups are kept in `~/.claude/backups/fwd-switchover-<time>/`:
+`machine/switch.sh` is the one-time install: it installs the plugin and makes the machine
+consistent. It works on a fresh machine and on one that ran these skills from `~/.claude/skills`.
+Updates after that do not need it (see [Updating](#updating)). Backups are kept in
+`~/.claude/backups/fwd-switchover-<time>/`:
 
 ```sh
 machine/switch.sh --dry-run   # print every step, change nothing
@@ -257,11 +258,35 @@ It does five things:
 gate and the autonomous-run guard. Run the switch when no session is mid-review or mid-merge,
 then restart sessions so they load the plugin's hooks.
 
-**Shipping a plugin change to a machine.** Claude Code fetches a new copy only when
-`plugins/fwd/.claude-plugin/plugin.json`'s `version` changes, so a merged change to the plugin
-does nothing on a machine until that number is raised. Raise it in the change itself, or in a
-follow-up PR, then run `machine/switch.sh` again: it updates the plugin, re-points
-`~/.claude/fwd` at the new copy and verifies.
+### Updating
+
+Claude Code fetches a new copy only when `plugins/fwd/.claude-plugin/plugin.json`'s `version`
+changes, so a merged change to the plugin does nothing on a machine until that number is raised.
+Raise it in the change itself, or in a follow-up PR.
+
+**Automatic (recommended).** Turn on auto-update for the `fwd-stack` marketplace once per machine:
+`/plugin` → **Marketplaces** → `fwd-stack` → **Enable auto-update**, or set it in
+`~/.claude/settings.json`:
+
+```json
+"extraKnownMarketplaces": {
+  "fwd-stack": {
+    "source": { "source": "github", "repo": "featherweight-design/fwd-stack" },
+    "autoUpdate": true
+  }
+}
+```
+
+Claude Code then fetches a new version in the background a few minutes into a session and shows
+`Plugin updated: fwd · Run /reload-plugins to apply`. Run `/reload-plugins` in each open session,
+or just start new ones.
+
+**By hand.** `machine/update.sh` updates the marketplace and the plugin, then re-links. It is safe
+while sessions run. Then `/reload-plugins` in each open session.
+
+Either way `~/.claude/fwd` follows on its own: the plugin's `fwd-link` hook re-points it at the
+installed version at the next session start or prompt. It only re-points a symlink into the fwd
+plugin cache, and only to a newer version of the user-scope install; it leaves anything else alone.
 
 ## Working on the kit
 

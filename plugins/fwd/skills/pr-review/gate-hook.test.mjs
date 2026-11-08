@@ -54,6 +54,8 @@ const hook = (command, { stub = true, home = bareHome } = {}) => {
     : join(here, 'gate-hook.sh');
   const env = { ...process.env, HOME: home };
   delete env.GH_REPO;
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CLAUDE_CODE_PLUGIN_CACHE_DIR;
   const r = spawnSync('bash', [script], {
     cwd: outside,
     env,
@@ -208,6 +210,8 @@ test('when the resolver is missing, the bundled gate still runs and denies', () 
   const { home } = newestHome('home-no-resolver', 'process.exit(0);\n');
   const env = { ...process.env, HOME: home };
   delete env.GH_REPO;
+  delete env.CLAUDE_CONFIG_DIR;
+  delete env.CLAUDE_CODE_PLUGIN_CACHE_DIR;
   const r = spawnSync('bash', [join(bareSkill, 'gate-hook.sh')], {
     cwd: outside,
     env,
