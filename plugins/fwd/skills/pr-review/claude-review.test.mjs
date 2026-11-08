@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 
 import {
   claudeReviewState,
+  copilotOffBar,
   copilotOffDoor,
   COPILOT_OFF_HINT,
   RECORD_HINT,
@@ -267,4 +268,46 @@ test('an empty body declares nothing', () => {
 test('the Copilot-off hint names both passes', () => {
   assert.match(COPILOT_OFF_HINT, /\/code-review medium/);
   assert.match(COPILOT_OFF_HINT, /Checklist pass: no findings\./);
+});
+
+test('the unfilled hint is not a checklist record', () => {
+  const door = copilotOffDoor(
+    off(
+      '/code-review medium: no findings.\nChecklist pass: <n> findings (C/H/M/L), <what was fixed>',
+    ),
+  );
+  assert.equal(door.checklist, false);
+  assert.equal(door.opens, false);
+});
+
+test('a "## Copilot off" heading inside an HTML comment is not a declaration', () => {
+  const door = copilotOffDoor(
+    `Summary.\n\n<!--\n## Copilot off\n-->\n\n## Claude review\n\n${BOTH}\n`,
+  );
+  assert.equal(door.declared, false);
+  assert.equal(door.opens, false);
+});
+
+// The gate's bar for the door (pr-gate.mjs reads copilotOffBar before any other door).
+test('on a risky PR with the heading, the door alone decides the bar', () => {
+  assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), true), true);
+  // A shut door is not met, whatever else the PR has (a Copilot round, a budget stop).
+  assert.equal(
+    copilotOffBar(
+      copilotOffDoor(off('/code-review medium: no findings.')),
+      true,
+    ),
+    false,
+  );
+});
+
+test('the door does not apply without the heading or on a non-risky PR', () => {
+  assert.equal(
+    copilotOffBar(
+      copilotOffDoor(`Summary.\n\n## Claude review\n\n${BOTH}\n`),
+      true,
+    ),
+    null,
+  );
+  assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), false), null);
 });

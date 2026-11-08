@@ -30,6 +30,7 @@ import {
 } from './settled.mjs';
 import {
   claudeReviewState,
+  copilotOffBar,
   copilotOffDoor,
   COPILOT_OFF_HINT,
   RECORD_HINT,
@@ -489,6 +490,8 @@ const claudePlaceholder = claudeReview.present && !claudeReview.recorded;
 // `/code-review` and the `Checklist pass:` meets a risky PR's bar with no Copilot round, the same way
 // the budget stop does; with the heading present, no Copilot request is allowed (claude-review.mjs).
 const copilotOff = copilotOffDoor(prData.body);
+// Set only on a risky PR that declares the heading; the reason a shut door is shut.
+const doorShut = copilotOff.declared && risky && !copilotOff.opens;
 // Test, probe, script or copy-only PRs take no review at all, like doc-only ones (owner ruling 2026-10-30).
 // Narrower than isTooling: no package.json, lockfile or CI config (a dependency bump is code), and a
 // probe counts only as a directory, never a runtime path that happens to say "probe".
@@ -825,7 +828,9 @@ if (humanReviewer) {
   say(
     true,
     'destructive path ',
-    `${destructivePaths.slice(0, 3).join(', ')} — §8 wants clean AFTER clean here`,
+    copilotOff.declared
+      ? `${destructivePaths.slice(0, 3).join(', ')} — \`## Copilot off\`: the two Claude passes are this diff's review, so read them with §8's care`
+      : `${destructivePaths.slice(0, 3).join(', ')} — §8 wants clean AFTER clean here`,
   );
 }
 
@@ -888,22 +893,29 @@ const needed = destructive
 // bar once it has one scored round (any result): the agent fixes every valid finding and merges on
 // green CI. A doc-only PR takes none (§9). `needed` and the clean streak are still printed for
 // context, but they no longer decide the bar.
+// OWNER RULING 2026-11-08: on a risky PR that declares `## Copilot off`, the door alone decides
+// (copilotOffBar): /code-review plus the checklist pass. Destructive diffs included, as with the
+// budget stop: with no Copilot there are no rounds to stand clean after clean, so the two Claude
+// passes are their review. Without the heading, one Copilot round still meets the bar, a path kept
+// only for the ruling's rollback trigger.
+const offBar = copilotOffBar(copilotOff, risky);
 const barMet =
-  (docOnly && !destructive) ||
-  noReview ||
-  (budgetStop && (!risky || claudeReviewed)) ||
-  (copilotOff.declared && (risky ? copilotOff.opens : claudeReviewed))
+  (docOnly && !destructive) || noReview
     ? true
-    : risky
-      ? scored.length >= 1
-      : claudeReviewed || scored.length >= 1;
+    : offBar !== null
+      ? offBar
+      : budgetStop && (!risky || claudeReviewed)
+        ? true
+        : risky
+          ? scored.length >= 1
+          : claudeReviewed || scored.length >= 1;
 say(
   true,
   'copilot scope     ',
   risky
     ? `RISKY: ${riskyPaths.slice(0, 4).join(', ') || 'destructive diff'}; ${
         copilotOff.declared
-          ? `Copilot off: /code-review ${copilotOff.codeReview ? 'recorded' : 'needed'}, checklist pass ${copilotOff.checklist ? 'recorded' : 'needed'}`
+          ? `Copilot off: /code-review ${claudeReviewed && copilotOff.codeReview ? 'recorded' : 'needed'}, checklist pass ${copilotOff.checklist ? 'recorded' : 'needed'}`
           : 'write `## Copilot off` and record /code-review plus the checklist pass (owner ruling 2026-11-08)'
       }`
     : docOnly || noReview
@@ -1038,27 +1050,29 @@ const softFixedWhy =
 // but the merge waits for the user rather than shipping a delete on an unconfirmed round.
 const hardStopReleases = hardStop && !destructive;
 say(
-  barMet || softFixed || hardStopReleases,
+  barMet || (!doorShut && (softFixed || hardStopReleases)),
   'merge bar        ',
-  barMet
-    ? (docOnly && !destructive) || noReview
-      ? 'doc, test, script or copy-only: no review round needed (owner ruling 2026-10-30)'
-      : budgetStop
-        ? 'Copilot budget stop recorded: merging on green CI'
-        : copilotOff.declared && risky && copilotOff.opens
-          ? 'risky PR, Copilot off: /code-review and checklist pass recorded (owner ruling 2026-11-08)'
-          : risky
-            ? `risky PR: ${scored.length} Copilot round(s), one required (owner ruling 2026-10-30)`
-            : claudeReviewed
-              ? 'not risky: Claude review recorded (owner ruling 2026-10-30)'
-              : `not risky: ${scored.length} Copilot round(s) already ran, which also meets the bar`
-    : softFixed
-      ? `round ${last.n} earns no new round (${softFixedWhy}) — §5 says merge without another round`
-      : hardStop && destructive
-        ? `${cleanStreak} trailing, need ${needed} — §7's hard stop ends requesting, but this diff is destructive, so the merge waits for the user to confirm it §8`
-        : hardStop
-          ? `${cleanStreak} trailing, need ${needed} — but §7's hard stop releases it: merge and report what is left`
-          : `${cleanStreak} successful round(s) trailing, need ${needed} §8`,
+  doorShut
+    ? `\`## Copilot off\` declared on a risky PR: missing ${copilotOff.missing.join('; ')} (owner ruling 2026-11-08)`
+    : barMet
+      ? (docOnly && !destructive) || noReview
+        ? 'doc, test, script or copy-only: no review round needed (owner ruling 2026-10-30)'
+        : budgetStop
+          ? 'Copilot budget stop recorded: merging on green CI'
+          : copilotOff.declared && risky && copilotOff.opens
+            ? 'risky PR, Copilot off: /code-review and checklist pass recorded (owner ruling 2026-11-08)'
+            : risky
+              ? `risky PR: ${scored.length} Copilot round(s), one required (owner ruling 2026-10-30)`
+              : claudeReviewed
+                ? 'not risky: Claude review recorded (owner ruling 2026-10-30)'
+                : `not risky: ${scored.length} Copilot round(s) already ran, which also meets the bar`
+      : softFixed
+        ? `round ${last.n} earns no new round (${softFixedWhy}) — §5 says merge without another round`
+        : hardStop && destructive
+          ? `${cleanStreak} trailing, need ${needed} — §7's hard stop ends requesting, but this diff is destructive, so the merge waits for the user to confirm it §8`
+          : hardStop
+            ? `${cleanStreak} trailing, need ${needed} — but §7's hard stop releases it: merge and report what is left`
+            : `${cleanStreak} successful round(s) trailing, need ${needed} §8`,
 );
 
 if (lastFixWeight && lastFixPaths && lastFixWeight !== roundWeight(last)) {
@@ -1240,24 +1254,31 @@ if (action === 'merge') {
     );
   } else if (!barMet) {
     blocks.push(
-      (risky
-        ? `bar not met: risky code PR (${riskyPaths.slice(0, 3).join(', ') || 'destructive diff'}) takes a Claude ` +
-          `review with no Copilot (owner ruling 2026-11-08). Missing: ${copilotOff.missing.join('; ')}. ` +
-          `Run /code-review medium, then the risk checklist pass; write \`## Copilot off\`, and ` +
+      (doorShut
+        ? `bar not met: \`## Copilot off\` is declared on this risky PR (${riskyPaths.slice(0, 3).join(', ') || 'destructive diff'}), ` +
+          `but it is missing ${copilotOff.missing.join('; ')}. Run what is missing; ` +
           COPILOT_OFF_HINT +
-          '.'
-        : claudePlaceholder
-          ? 'bar not met: the `## Claude review` section is empty or a placeholder (pending, TBD, n/a), ' +
-            'which is not a record. Run the review, then ' +
-            RECORD_HINT +
-            '.'
-          : `bar not met: ${override.applied ? `declared not risky under ${NOT_RISKY_TITLE}` : 'not a risky PR'}, so no Copilot. Run a Claude review (the caveman:cavecrew-reviewer ` +
-            'agent on the diff), fix what it finds, record it under `## Claude review` in the PR body (' +
-            RECORD_HINT +
-            '), then merge on green CI.') +
-        ` Clean streak ${cleanStreak}. Last SCORED round ` +
-        `(${lastScored ? `#${lastScored.n}` : 'none'}) landed on ` +
-        `${lastScored?.paths.join(', ') || 'no findings'}.` +
+          ' (owner ruling 2026-11-08).'
+        : risky
+          ? `bar not met: risky code PR (${riskyPaths.slice(0, 3).join(', ') || 'destructive diff'}) takes ` +
+            '/code-review medium, then the risk checklist pass, with no Copilot (owner ruling 2026-11-08): ' +
+            'write `## Copilot off` in the PR body, and ' +
+            COPILOT_OFF_HINT +
+            ". (One Copilot round also meets this bar, kept only for the ruling's rollback trigger.)"
+          : claudePlaceholder
+            ? 'bar not met: the `## Claude review` section is empty or a placeholder (pending, TBD, n/a), ' +
+              'which is not a record. Run the review, then ' +
+              RECORD_HINT +
+              '.'
+            : `bar not met: ${override.applied ? `declared not risky under ${NOT_RISKY_TITLE}` : 'not a risky PR'}, so no Copilot. Run a Claude review (the caveman:cavecrew-reviewer ` +
+              'agent on the diff), fix what it finds, record it under `## Claude review` in the PR body (' +
+              RECORD_HINT +
+              '), then merge on green CI.') +
+        (doorShut
+          ? ''
+          : ` Clean streak ${cleanStreak}. Last SCORED round ` +
+            `(${lastScored ? `#${lastScored.n}` : 'none'}) landed on ` +
+            `${lastScored?.paths.join(', ') || 'no findings'}.`) +
         (last?.errored
           ? ' The newest review errored and was dropped — that is an outage, not a round.'
           : ''),
@@ -1271,8 +1292,13 @@ if (action === 'rerequest') {
   if (copilotOff.declared) {
     blocks.push(
       '`## Copilot off` is in the PR body: no Copilot request on this PR (owner ruling 2026-11-08). ' +
-        'Run /code-review medium and the risk checklist pass, record both under `## Claude review`, ' +
-        'and merge on green CI.',
+        (risky
+          ? 'Run /code-review medium and the risk checklist pass, record both under `## Claude review` ' +
+            `(${COPILOT_OFF_HINT}), and merge on green CI.`
+          : docOnly || noReview
+            ? 'This PR takes no review: read your own diff and merge on green CI.'
+            : 'Run the Claude review (the caveman:cavecrew-reviewer agent on the diff), record it under ' +
+              '`## Claude review`, and merge on green CI.'),
     );
   }
   if (!risky && !(docOnly && !destructive) && !noReview) {
@@ -1379,12 +1405,33 @@ if (blocks.length) {
   // not a rule. Name it, and name the way out, rather than leaving them to find
   // it by trying both.
   if (action) {
+    // `## Copilot off` refuses every Copilot request, so a re-request is never the other door, and a
+    // merge is open only when the bar is met (the door's passes recorded).
     const otherAllowed =
       oscillating.length === 0 &&
-      (action === 'merge'
-        ? !hardStop && !barMet
-        : barMet || softFixed || hardStopReleases);
-    if (!otherAllowed && hardStop && destructive && !barMet) {
+      (copilotOff.declared
+        ? action === 'merge'
+          ? false
+          : barMet
+        : action === 'merge'
+          ? !hardStop && !barMet
+          : barMet || softFixed || hardStopReleases);
+    if (copilotOff.declared && barMet) {
+      // The bar is met, so what blocks is CI or an unpushed commit, and each block says its exit.
+    } else if (
+      !otherAllowed &&
+      copilotOff.declared &&
+      oscillating.length === 0
+    ) {
+      console.log(
+        'NOTE: `## Copilot off` refuses every Copilot request, so the only exit is the merge: record ' +
+          (copilotOff.missing.length && risky
+            ? `what is missing (${copilotOff.missing.join('; ')})`
+            : 'the review this PR takes under `## Claude review`') +
+          ', then merge on green CI.',
+      );
+      console.log('');
+    } else if (!otherAllowed && hardStop && destructive && !barMet) {
       console.log(
         "NOTE: both actions are blocked on purpose. §7's hard stop has ended requesting, and this " +
           'diff is destructive, so its bar is not lowered. The exit is the user confirming the merge.',

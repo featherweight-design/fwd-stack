@@ -105,7 +105,10 @@ export const COPILOT_OFF_HINT =
  */
 export function copilotOffDoor(body) {
   const text = body ?? '';
-  const declared = COPILOT_OFF.test(text);
+  // A heading inside an HTML comment is not a declaration.
+  const declared = COPILOT_OFF.test(
+    text.replace(/<!--[\s\S]*?(?:-->|$)/g, ' '),
+  );
   const review = sectionState(text, HEADING);
   const m = HEADING.exec(text);
   const section = m
@@ -117,7 +120,9 @@ export function copilotOffDoor(body) {
   const codeReview = CODE_REVIEW.test(section);
   const line = CHECKLIST.exec(section);
   const parts = line ? clauses(line[1]) : [];
+  // The unfilled hint ("Checklist pass: <n> findings (C/H/M/L), <what was fixed>") is not a record.
   const checklist =
+    !/<[^>\n]*>/.test(line?.[1] ?? '') &&
     parts.length > 0 &&
     !PLACEHOLDER_OPENER.test(parts[0]) &&
     !parts.some((c) => PLACEHOLDER_CLAUSE.test(c));
@@ -134,4 +139,14 @@ export function copilotOffDoor(body) {
     opens: declared && review.recorded && codeReview && checklist,
     missing,
   };
+}
+
+/**
+ * The risky-PR merge bar the `## Copilot off` door decides, or `null` where the door does not apply
+ * (no heading, or a PR that is not risky: those keep their own bar). With the heading on a risky PR
+ * the door alone decides: a Copilot round already on the PR, or a `## Copilot budget stop`, does not
+ * stand in for the two Claude passes.
+ */
+export function copilotOffBar(door, risky) {
+  return door.declared && risky ? door.opens : null;
 }
