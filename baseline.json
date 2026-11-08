@@ -1,5 +1,5 @@
 {
-  "$comment": "The versions every fwd-stack project is held to. `stack doctor` (planned) compares a project's package.json against these majors. Raise a pin here first, then in each project.",
+  "$comment": "The versions every fwd-stack project is held to. The baseline workflow (.github/workflows/baseline.yml) compares a project's package.json files, Node pin and packageManager against these. Raise a pin here first, then in each project.",
   "node": "24",
   "nodeMinimum": "24.22.1",
   "nodeMinimumReason": "Node's October 2026 security release: TLS hostname-check bypass, Brotli decompression RCE, and distrust of the compromised eMudhra intermediates. Each project raises its Node pin to at least this.",

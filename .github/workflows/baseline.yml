@@ -1,0 +1,58 @@
+# Reusable baseline check for fwd-stack projects. A project calls it from its own ci.yml:
+#
+#   jobs:
+#     baseline:
+#       uses: featherweight-design/fwd-stack/.github/workflows/baseline.yml@main
+#       with:
+#         mode: warn
+#
+# It compares every tracked package.json (fixtures skipped) against this repo's baseline.json:
+# the declared major of each package the baseline lists (major.minor for a 0.x pin such as
+# drizzle-orm), the Node pin file against `node` and `nodeMinimum`, and the root packageManager
+# against `pnpm`. A package the project does not use is skipped. Each mismatch is one annotation;
+# `mode: warn` passes and `mode: fail` fails. A project lists documented exceptions as
+# `"fwdBaseline": { "ignore": ["zod"] }`: in the root package.json it covers every package.json,
+# in a nested one only that file, and "node" or "pnpm" in the root list skips that check.
+# The logic is scripts/baseline-check.mjs, read from the same kit ref as baseline.json.
+name: Baseline
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: warn (annotate and pass) or fail (annotate and fail on any mismatch).
+        type: string
+        default: warn
+      kit-ref:
+        description: The fwd-stack ref to read baseline.json and the check from.
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/checkout@v7
+        with:
+          repository: featherweight-design/fwd-stack
+          ref: ${{ inputs.kit-ref }}
+          path: .fwd-kit
+          sparse-checkout: |
+            baseline.json
+            scripts/baseline-check.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Compare against baseline.json
+        env:
+          MODE: ${{ inputs.mode }}
+        run: node .fwd-kit/scripts/baseline-check.mjs .fwd-kit/baseline.json

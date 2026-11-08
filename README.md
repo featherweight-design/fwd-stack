@@ -9,19 +9,19 @@ The design and the reasoning behind it are in the
 
 ## What is here
 
-| Path                            | What it is                                                                                                                  |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `packages/tsconfig`             | `base`, `strictest`, `nextjs` and `node` TypeScript configs                                                                 |
-| `packages/eslint-config`        | `base`, `node` and `next` ESLint flat configs                                                                               |
-| `packages/prettier-config`      | The shared Prettier config                                                                                                  |
-| `packages/commitlint-config`    | Conventional commits with the shared type list                                                                              |
-| `.github/workflows/node-ci.yml` | Reusable CI gate: install, then typecheck, lint, test and build; opt-in selected tests with a nightly full run              |
-| `baseline.json`                 | The majors every project is held to (Node, pnpm, Next, React, Zod, Vitest, Sentry, Drizzle …), plus a Node security minimum |
-| `plugins/fwd`                   | Claude Code plugin: the shared agent skills and their guard hooks                                                           |
-| `tests/`                        | Proves each config loads and enforces what it claims                                                                        |
+| Path                             | What it is                                                                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `packages/tsconfig`              | `base`, `strictest`, `nextjs` and `node` TypeScript configs                                                                 |
+| `packages/eslint-config`         | `base`, `node` and `next` ESLint flat configs                                                                               |
+| `packages/prettier-config`       | The shared Prettier config                                                                                                  |
+| `packages/commitlint-config`     | Conventional commits with the shared type list                                                                              |
+| `.github/workflows/node-ci.yml`  | Reusable CI gate: install, then typecheck, lint, test and build; opt-in selected tests with a nightly full run              |
+| `.github/workflows/baseline.yml` | Reusable check of a project's versions against `baseline.json`; warns by default                                            |
+| `baseline.json`                  | The majors every project is held to (Node, pnpm, Next, React, Zod, Vitest, Sentry, Drizzle …), plus a Node security minimum |
+| `plugins/fwd`                    | Claude Code plugin: the shared agent skills and their guard hooks                                                           |
+| `tests/`                         | Proves each config loads and enforces what it claims                                                                        |
 
-Planned, in order: the `stack` generator with opt-in capabilities, `stack doctor` (drift against
-`baseline.json`), and a cross-project cost check.
+Planned, in order: the `stack` generator with opt-in capabilities, and a cross-project cost check.
 
 ## Using it in a project
 
@@ -56,6 +56,36 @@ jobs:
     with:
       scripts: typecheck lint test build
 ```
+
+### The baseline check
+
+A second reusable workflow compares the project against `baseline.json`. Add it beside `gate`:
+
+```yaml
+jobs:
+  baseline:
+    uses: featherweight-design/fwd-stack/.github/workflows/baseline.yml@main
+    with:
+      mode: warn
+```
+
+It reads every tracked `package.json` (fixtures skipped) and checks:
+
+- the declared major of each package `baseline.json` lists, or major.minor for a `0.x` pin such as
+  `drizzle-orm`. A package the project does not use is skipped;
+- the Node pin (`.nvmrc` or `.node-version`): the baseline major, and at least `nodeMinimum`;
+- `packageManager` in the root `package.json`: pnpm at the baseline major.
+
+Each mismatch is one annotation on the run. `mode: warn` (the default) passes; `mode: fail` fails
+the job. `kit-ref` (default `main`) picks the fwd-stack ref the baseline and the check are read
+from. A documented exception goes in `package.json`:
+
+```json
+{ "fwdBaseline": { "ignore": ["zod"] } }
+```
+
+In the root `package.json` the list covers every `package.json` in the repo; in a nested one, only
+that file. `"node"` or `"pnpm"` in the root list skips that check.
 
 ### Selected tests on pull requests, the full suite nightly
 
