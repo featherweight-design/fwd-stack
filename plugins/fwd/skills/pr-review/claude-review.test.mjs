@@ -288,10 +288,24 @@ test('a "## Copilot off" heading inside an HTML comment is not a declaration', (
   assert.equal(door.opens, false);
 });
 
-// The gate's bar for the door (pr-gate.mjs reads copilotOffBar before any other door).
+test('a commented-out Claude review section records nothing', () => {
+  const door = copilotOffDoor(
+    `Summary.\n\n## Copilot off\n\n<!--\n## Claude review\n\n${BOTH}\n-->\n`,
+  );
+  assert.equal(door.declared, true);
+  assert.equal(door.codeReview, false);
+  assert.equal(door.checklist, false);
+  assert.equal(door.opens, false);
+});
+
+test('a CRLF body still declares and records', () => {
+  assert.equal(copilotOffDoor(off(BOTH).replace(/\n/g, '\r\n')).opens, true);
+});
+
+// The gate's bar for the door: pr-gate.mjs reads copilotOffBar before the budget stop and before
+// counting Copilot rounds, so neither can stand in for a shut door.
 test('on a risky PR with the heading, the door alone decides the bar', () => {
   assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), true), true);
-  // A shut door is not met, whatever else the PR has (a Copilot round, a budget stop).
   assert.equal(
     copilotOffBar(
       copilotOffDoor(off('/code-review medium: no findings.')),

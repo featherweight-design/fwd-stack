@@ -915,7 +915,7 @@ say(
   risky
     ? `RISKY: ${riskyPaths.slice(0, 4).join(', ') || 'destructive diff'}; ${
         copilotOff.declared
-          ? `Copilot off: /code-review ${claudeReviewed && copilotOff.codeReview ? 'recorded' : 'needed'}, checklist pass ${copilotOff.checklist ? 'recorded' : 'needed'}`
+          ? `Copilot off: /code-review ${claudeReviewed && copilotOff.codeReview ? 'recorded' : 'needed'}, checklist pass ${claudeReviewed && copilotOff.checklist ? 'recorded' : 'needed'}`
           : 'write `## Copilot off` and record /code-review plus the checklist pass (owner ruling 2026-11-08)'
       }`
     : docOnly || noReview
@@ -947,7 +947,7 @@ if (copilotOff.declared)
         ? '`## Copilot off` in the body: merging on /code-review + checklist pass, no Copilot round (owner ruling 2026-11-08)'
         : `\`## Copilot off\` in the body, but missing ${copilotOff.missing.join('; ')}`,
   );
-if (budgetStop)
+if (budgetStop && !(copilotOff.declared && risky))
   say(
     false,
     'budget stop      ',
@@ -1057,10 +1057,10 @@ say(
     : barMet
       ? (docOnly && !destructive) || noReview
         ? 'doc, test, script or copy-only: no review round needed (owner ruling 2026-10-30)'
-        : budgetStop
-          ? 'Copilot budget stop recorded: merging on green CI'
-          : copilotOff.declared && risky && copilotOff.opens
-            ? 'risky PR, Copilot off: /code-review and checklist pass recorded (owner ruling 2026-11-08)'
+        : copilotOff.declared && risky && copilotOff.opens
+          ? 'risky PR, Copilot off: /code-review and checklist pass recorded (owner ruling 2026-11-08)'
+          : budgetStop
+            ? 'Copilot budget stop recorded: merging on green CI'
             : risky
               ? `risky PR: ${scored.length} Copilot round(s), one required (owner ruling 2026-10-30)`
               : claudeReviewed
@@ -1247,7 +1247,8 @@ if (action === 'merge') {
       'your local branch is ahead of the PR head — you would be merging without your last commits.',
     );
   }
-  if (hardStop && destructive && !barMet) {
+  // With `## Copilot off` declared, the door is the only exit, so its block comes first.
+  if (hardStop && destructive && !barMet && !doorShut) {
     blocks.push(
       'hard stop on a destructive path: requesting has ended, but this diff deletes or overwrites ' +
         'user data, so the merge waits for the user to confirm it (§8).',
@@ -1264,7 +1265,7 @@ if (action === 'merge') {
             '/code-review medium, then the risk checklist pass, with no Copilot (owner ruling 2026-11-08): ' +
             'write `## Copilot off` in the PR body, and ' +
             COPILOT_OFF_HINT +
-            ". (One Copilot round also meets this bar, kept only for the ruling's rollback trigger.)"
+            '.'
           : claudePlaceholder
             ? 'bar not met: the `## Claude review` section is empty or a placeholder (pending, TBD, n/a), ' +
               'which is not a record. Run the review, then ' +
@@ -1327,7 +1328,8 @@ if (action === 'rerequest') {
         'would read stale code. Push, confirm `pulls/N --jq .head.sha` matches your HEAD, then re-request.',
     );
   }
-  if (hardStop) {
+  // With `## Copilot off` declared, the block above already names the exit; §7's text would not.
+  if (hardStop && !copilotOff.declared) {
     blocks.push(
       `round ${scored.length}, open ${openedHours.toFixed(1)}h — §7's hard stop. There is no round ${scored.length + 1}: fix what is Crit/High/Med in the product tree, ` +
         (destructive && !barMet
@@ -1405,32 +1407,27 @@ if (blocks.length) {
   // not a rule. Name it, and name the way out, rather than leaving them to find
   // it by trying both.
   if (action) {
-    // `## Copilot off` refuses every Copilot request, so a re-request is never the other door, and a
-    // merge is open only when the bar is met (the door's passes recorded).
     const otherAllowed =
       oscillating.length === 0 &&
-      (copilotOff.declared
-        ? action === 'merge'
-          ? false
-          : barMet
-        : action === 'merge'
-          ? !hardStop && !barMet
-          : barMet || softFixed || hardStopReleases);
-    if (copilotOff.declared && barMet) {
-      // The bar is met, so what blocks is CI or an unpushed commit, and each block says its exit.
-    } else if (
-      !otherAllowed &&
-      copilotOff.declared &&
-      oscillating.length === 0
-    ) {
-      console.log(
-        'NOTE: `## Copilot off` refuses every Copilot request, so the only exit is the merge: record ' +
-          (copilotOff.missing.length && risky
-            ? `what is missing (${copilotOff.missing.join('; ')})`
-            : 'the review this PR takes under `## Claude review`') +
-          ', then merge on green CI.',
-      );
-      console.log('');
+      (action === 'merge'
+        ? !hardStop && !barMet
+        : barMet || softFixed || hardStopReleases);
+    // With `## Copilot off` declared, a re-request is never the other door. When the bar is met, what
+    // blocks is CI or an unpushed commit, and each of those blocks names its own exit, so no NOTE.
+    if (copilotOff.declared) {
+      if (!barMet) {
+        console.log(
+          'NOTE: `## Copilot off` refuses every Copilot request, so the only exit is the merge: record ' +
+            (copilotOff.missing.length && risky
+              ? `what is missing (${copilotOff.missing.join('; ')})`
+              : 'the review this PR takes under `## Claude review`') +
+            (oscillating.length > 0
+              ? ", and record §7's scope ruling in the PR body's `## Settled` (naming the file)"
+              : '') +
+            ', then merge on green CI.',
+        );
+        console.log('');
+      }
     } else if (!otherAllowed && hardStop && destructive && !barMet) {
       console.log(
         "NOTE: both actions are blocked on purpose. §7's hard stop has ended requesting, and this " +

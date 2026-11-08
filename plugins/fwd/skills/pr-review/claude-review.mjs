@@ -104,18 +104,17 @@ export const COPILOT_OFF_HINT =
  * both; `missing` names what is not there yet, in the order to fix it.
  */
 export function copilotOffDoor(body) {
-  const text = body ?? '';
-  // A heading inside an HTML comment is not a declaration.
-  const declared = COPILOT_OFF.test(
-    text.replace(/<!--[\s\S]*?(?:-->|$)/g, ' '),
-  );
+  // Everything inside an HTML comment is invisible, headings included: a commented-out
+  // `## Copilot off` or `## Claude review` declares and records nothing. CRLF bodies (web edits)
+  // are read as LF, so a heading's line end still matches.
+  const text = (body ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ');
+  const declared = COPILOT_OFF.test(text);
   const review = sectionState(text, HEADING);
   const m = HEADING.exec(text);
   const section = m
-    ? `${m[1] ?? ''}\n${text.slice(m.index + m[0].length).split(/^#{1,2}[ \t]/m)[0]}`.replace(
-        /<!--[\s\S]*?(?:-->|$)/g,
-        ' ',
-      )
+    ? `${m[1] ?? ''}\n${text.slice(m.index + m[0].length).split(/^#{1,2}[ \t]/m)[0]}`
     : '';
   const codeReview = CODE_REVIEW.test(section);
   const line = CHECKLIST.exec(section);
