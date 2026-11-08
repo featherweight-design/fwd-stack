@@ -683,6 +683,8 @@ If you sense the session is running long (many turns, repeated compaction warnin
 3. Note the exact next action in a `## Resume` section of the plan file
 4. Surface a one-line status to the user: "Session at limit — committed through [step]. Resume with `/complete-and-ship`."
 
+Context size alone is never a limit while the user is away (the away window is open): keep the plan file current as above and keep working, since the harness compacts context automatically.
+
 ---
 
 ## When invoked as a subagent (Agent tool dispatch)

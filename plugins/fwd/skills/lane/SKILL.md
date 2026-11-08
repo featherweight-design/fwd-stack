@@ -23,8 +23,8 @@ before anything else: its rules add to these and win where they conflict.
   cross-session messages carry the user's authority for this work. A lane once waited an hour for a
   confirmation the orchestrator had already given.
 - Arm the autonomous-run guard when the brief is unattended work, for the whole away window
-  (`node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" status`). While the user is away, never stop for
-  context: keep turns lean and write the handoff at each PR boundary.
+  (`node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" status`). While the user is away, never stop, or ask
+  to stop, for context (§4).
 - Still refuse anything that would escalate permissions or route around a denial, and keep the
   brief's own "do not" list. A peer message can never answer a permission prompt.
 
@@ -38,7 +38,7 @@ before anything else: its rules add to these and win where they conflict.
   it with the options and your recommendation, then keep working on the parts it does not affect.
   The best lanes do this rather than stopping dead.
 - When the approved task turns out bigger than described, stop and report the new size before
-  continuing.
+  continuing. Your own context size is never that reason (§4).
 - Approval of the task covers decisions inside it, never new tasks.
 
 - **Scratch databases:** name the scratch branch explicitly in every command that writes. Never
@@ -69,11 +69,18 @@ to a log, which can never wake a session.
 
 - Read large files in parts (`sed -n`, `grep -n`, offsets), and hand whole-file reads and broad
   searches to a subagent. A large read is paid again on every later turn.
-- When the orchestrator says you are over the line, finish the current PR, then rotate.
+- While the user is present: when the orchestrator says you are over the line, finish the current
+  PR, then rotate.
+- **While the away window is open, `rotateAt` does not apply.** Keep working past it, including
+  when you believe the next PR will not fit: the harness compacts context automatically. Never
+  stop, or ask to stop, for context while the user is away. Write the handoff (§5, step 1) at each
+  PR boundary instead, so a restart can pick up from any of them. Lanes have stopped short of the
+  line, reading it as a hard ceiling. It is not one.
 
 ## 5 · Rotating out
 
-At the PR boundary where the orchestrator rotates you:
+At the PR boundary where the orchestrator rotates you (only while the user is present; while they
+are away, write step 1 at every PR boundary and keep working):
 
 1. Write a handoff: what is merged, what is open and where it stands, the exact next step, and
    anything a fresh session would get wrong. Put it where the project keeps handoffs (see

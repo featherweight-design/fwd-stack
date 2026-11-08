@@ -139,6 +139,9 @@ Per-turn context, not session length, drives cost: every turn re-reads the whole
   lean turns and writes its handoff at each PR boundary, so a restart can pick up from any of them.
   Rotation waits for the user's return: list the candidates then, and they restart sessions, often
   several at once before an overnight run.
+- **While away, refuse every self-stop for context.** A lane that stops, or asks to stop, for
+  context gets an order to continue at once. "The next PR won't fit" is never a reason: the harness
+  compacts context automatically, and the handoff at each PR boundary covers a restart.
 - Keep at most `maxOpusLanes` Opus lanes. Put build lanes on Sonnet where the work allows.
 
 ## 8 · Spend is scrutinised before it is asked for
