@@ -48,13 +48,13 @@ export function cacheEntry(dir, cache) {
   return { marketplace: parts[0], version: parts[2] };
 }
 
-// The installed fwd folder for one marketplace, from installed_plugins.json; null when absent.
-// A user-scope install wins over a project one: the link is per user.
+// The user-scope fwd folder for one marketplace, from installed_plugins.json; null when absent.
+// A project-scope install never moves the link: the link is per user.
 export function installedPath(file, marketplace) {
   const data = JSON.parse(readFileSync(file, 'utf8'));
   const rows = data?.plugins?.[`fwd@${marketplace}`];
   if (!Array.isArray(rows)) return null;
-  const row = rows.find((r) => r?.scope === 'user') ?? rows[0];
+  const row = rows.find((r) => r?.scope === 'user');
   return typeof row?.installPath === 'string' ? row.installPath : null;
 }
 
@@ -76,31 +76,39 @@ export function plan({ link, cache, installed }) {
     const real = realpathSync(wanted);
     const next = cacheEntry(real, realCache);
     if (next === null || next.marketplace !== current.marketplace) return null;
-    if (next.version === current.version) return null;
-    if (compareVersions(next.version, current.version) === -1) return null;
+    // Only forward: a version that is not newer, or cannot be compared, leaves the link alone.
+    if (compareVersions(next.version, current.version) !== 1) return null;
     return real;
   } catch {
     return null;
   }
 }
 
-// Point the link at target in one step: a temporary link renamed over it.
-export function repoint(link, target) {
+// Point the link at target in one step: a temporary link renamed over it. `stillWanted` is asked
+// again just before the rename, so a session that planned from an older record does not undo a
+// newer session's re-point (a window of a few microseconds remains; the next prompt corrects it).
+export function repoint(link, target, stillWanted = () => true) {
   const tmp = `${link}.tmp-${process.pid}`;
   try {
     rmSync(tmp, { force: true });
     symlinkSync(target, tmp);
+    if (!stillWanted()) throw new Error('changed');
     renameSync(tmp, link);
     return true;
   } catch {
-    rmSync(tmp, { force: true });
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      // A folder squatting on the temporary name is left for the user; never throw from a hook.
+    }
     return false;
   }
 }
 
 export function relink(p = paths()) {
   const target = plan(p);
-  return target !== null && repoint(p.link, target) ? target : null;
+  if (target === null) return null;
+  return repoint(p.link, target, () => plan(p) === target) ? target : null;
 }
 
 if (isMain(import.meta.url)) {

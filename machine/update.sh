@@ -13,6 +13,14 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 claude plugin marketplace update fwd-stack
 claude plugin update fwd@fwd-stack --scope user
-node "$HERE/../plugins/fwd/hooks/fwd-link.mjs"
-echo "== fwd is $(readlink "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/fwd" 2>/dev/null || echo 'not linked: run machine/switch.sh')"
+# The checkout's copy: the link's target comes from installed_plugins.json either way.
+node "$HERE/../plugins/fwd/hooks/fwd-link.mjs" || echo "!! re-link failed; the next session start re-links."
+LINK="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/fwd"
+if [ -L "$LINK" ]; then
+  echo "== $LINK -> $(readlink "$LINK")"
+elif [ -e "$LINK" ]; then
+  echo "!! $LINK exists and is not a symlink; move it aside and run machine/switch.sh."
+else
+  echo "!! $LINK is missing; run machine/switch.sh once."
+fi
 echo "== run /reload-plugins in each open session to load the new version there."

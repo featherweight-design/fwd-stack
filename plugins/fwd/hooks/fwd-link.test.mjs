@@ -11,19 +11,31 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
 
-import { cacheEntry, paths, plan, relink } from './fwd-link.mjs';
+import {
+  cacheEntry,
+  installedPath,
+  paths,
+  plan,
+  relink,
+  repoint,
+} from './fwd-link.mjs';
 
 // A config folder with fwd 0.1.1 and 0.1.2 cached, ~/.claude/fwd -> 0.1.1, and 0.1.2 installed.
-function machine({ installed = '0.1.2', mkt = 'fwd-stack' } = {}) {
+function machine({
+  installed = '0.1.2',
+  linked = '0.1.1',
+  mkt = 'fwd-stack',
+} = {}) {
   const config = realpathSync(mkdtempSync(join(tmpdir(), 'fwd-link-')));
   const p = paths({ CLAUDE_CONFIG_DIR: config });
-  for (const v of ['0.1.1', '0.1.2', '0.1.10']) {
+  for (const v of ['0.1.1', '0.1.2', '0.1.10', 'dev']) {
     mkdirSync(join(p.cache, mkt, 'fwd', v), { recursive: true });
   }
   const dir = (v) => join(p.cache, mkt, 'fwd', v);
-  symlinkSync(dir('0.1.1'), p.link);
+  symlinkSync(dir(linked), p.link);
   const write = (v, scope = 'user') =>
     writeFileSync(
       p.installed,
@@ -67,8 +79,17 @@ test('an update re-points the link at the installed version', () => {
 });
 
 test('versions compare as numbers, not strings', () => {
-  const { p, dir } = machine({ installed: '0.1.10' });
+  // As strings "0.1.10" < "0.1.2", so a string compare would refuse this step.
+  const { p, dir } = machine({ linked: '0.1.2', installed: '0.1.10' });
   assert.equal(relink(p), dir('0.1.10'));
+});
+
+test('a version that cannot be compared moves nothing, in either direction', () => {
+  const a = machine({ installed: 'dev' });
+  assert.equal(relink(a.p), null);
+  assert.equal(readlinkSync(a.p.link), a.dir('0.1.1'));
+  const b = machine({ linked: 'dev', installed: '0.1.2' });
+  assert.equal(relink(b.p), null);
 });
 
 test('a link whose old version folder was swept is still re-pointed', () => {
@@ -121,6 +142,53 @@ test('an unreadable or foreign install record changes nothing', () => {
   );
   assert.equal(relink(b.p), null, 'an install path outside the cache');
   assert.equal(readlinkSync(b.p.link), b.dir('0.1.1'));
+});
+
+test('a project-only install never moves the per-user link', () => {
+  const { p, dir } = machine();
+  writeFileSync(
+    p.installed,
+    JSON.stringify({
+      plugins: {
+        'fwd@fwd-stack': [{ scope: 'project', installPath: dir('0.1.2') }],
+      },
+    }),
+  );
+  assert.equal(installedPath(p.installed, 'fwd-stack'), null);
+  assert.equal(relink(p), null);
+});
+
+test('repoint never throws, and re-checks before the rename', () => {
+  const { p, dir } = machine();
+  mkdirSync(`${p.link}.tmp-${process.pid}`);
+  assert.equal(
+    repoint(p.link, dir('0.1.2')),
+    false,
+    'a folder on the temp name',
+  );
+  rmSync(`${p.link}.tmp-${process.pid}`, { recursive: true });
+  assert.equal(
+    repoint(p.link, dir('0.1.2'), () => false),
+    false,
+  );
+  assert.equal(readlinkSync(p.link), dir('0.1.1'), 'a changed plan leaves it');
+  assert.equal(repoint(p.link, dir('0.1.2')), true);
+  assert.equal(readlinkSync(p.link), dir('0.1.2'));
+});
+
+test('the hook exits 0 and prints nothing', () => {
+  const { p } = machine();
+  const r = spawnSync(
+    process.execPath,
+    [new URL('./fwd-link.mjs', import.meta.url).pathname],
+    {
+      env: { ...process.env, CLAUDE_CONFIG_DIR: dirname(p.link) },
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(r.status, 0);
+  assert.equal(r.stdout + r.stderr, '');
+  assert.match(readlinkSync(p.link), /0\.1\.2$/);
 });
 
 test('the user-scope install wins over a project one', () => {

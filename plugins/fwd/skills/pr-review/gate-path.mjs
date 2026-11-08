@@ -41,12 +41,15 @@ export function compareVersions(a, b) {
   return 0;
 }
 
-export function resolveGate(bundled, home = homedir()) {
-  const link = join(home, '.claude', 'fwd', ...GATE);
+export function resolveGate(bundled, home = homedir(), env = process.env) {
+  // The same folders hooks/fwd-link.mjs keeps the link in.
+  const config = env.CLAUDE_CONFIG_DIR || join(home, '.claude');
+  const plugins = env.CLAUDE_CODE_PLUGIN_CACHE_DIR || join(config, 'plugins');
+  const link = join(config, 'fwd', ...GATE);
   try {
     if (!existsSync(link)) return bundled;
     const real = realpathSync(link);
-    const cache = realpathSync(join(home, '.claude', 'plugins', 'cache'));
+    const cache = realpathSync(join(plugins, 'cache'));
     const newest = cacheEntry(real, cache);
     if (newest === null) return bundled;
     const own = existsSync(bundled)

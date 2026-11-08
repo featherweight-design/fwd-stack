@@ -286,7 +286,7 @@ while sessions run. Then `/reload-plugins` in each open session.
 
 Either way `~/.claude/fwd` follows on its own: the plugin's `fwd-link` hook re-points it at the
 installed version at the next session start or prompt. It only re-points a symlink into the fwd
-plugin cache, never to an older version, and leaves anything else alone.
+plugin cache, and only to a newer version of the user-scope install; it leaves anything else alone.
 
 ## Working on the kit
 
