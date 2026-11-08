@@ -445,4 +445,4 @@ all merged green is still unfinished until that walk happens — on the motivati
 case, five green PRs left three gaps at the seams between them, none of which any
 review round could have seen.
 
-**Final report format is not free-form.** Invoke the `feature-run-report` skill to produce the "Morning report" — fixed shape with PR table, Copilot callouts, staging validation, and a numbered checklist. Divergence from the format loses signal.
+**Final report format is not free-form.** Invoke the `feature-run-report` skill: it emails the run report (per-project progress bars, what is ready to test and how, what waits on the user) and pings the phone. Divergence from its shape loses signal.

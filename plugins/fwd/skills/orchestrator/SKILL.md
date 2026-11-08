@@ -26,8 +26,8 @@ board locations, where the ruling log lives). Settings live under `orchestrator`
   §1), and keep the user's to-do list current.
 - Lanes report by cross-session message. Verify each claim (§3), answer inside the approved scope,
   escalate whatever belongs to the user, and log every decision (§4).
-- When the user leaves, arm the autonomous-run guard and wait on events (§6). A morning report in
-  `feature-run-report`'s fixed shape closes the run.
+- When the user leaves, arm the autonomous-run guard and wait on events (§6). An emailed run report
+  (`feature-run-report`) closes the run, and goes out mid-run when the run blocks on the user.
 
 ## 2 · What may start, and who decides
 
@@ -73,7 +73,7 @@ that decides it:
 
 The ruling log is a dated, append-only file. Each entry records the decision, who made it (the user,
 or the orchestrator inside approved scope), and the reason. Orchestrator decisions are marked
-"decided, override if you disagree". The log is the backbone of the morning report and of the
+"decided, override if you disagree". The log is the backbone of the run report and of the
 user's trust. `.claude/fwd/orchestrator.md` names its path.
 
 ## 5 · Lanes take orders from the orchestrator, and the orchestrator relays
