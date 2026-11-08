@@ -26,6 +26,12 @@ Produces the "Morning report" summary the user reads first thing after an autono
 
 Morning — <1–2 sentences: what shipped overnight; whether it needed intervention; the single most important status fact>.
 
+**Progress:** <N of M planned PRs merged> · <milestones reached, one short clause each>
+
+## Needs your input
+
+<always include; first after the opener. Decisions only you can make, each with a recommendation and what is blocked until you answer. Say "nothing" explicitly when clear.>
+
 ## What shipped, per PR
 
 | PR           | What                                            | Copilot callouts                                                                                                    |
@@ -62,6 +68,12 @@ New services (cron jobs, workers, queues, buckets) created during the run:
 - <what agent-side testing covered>
 - <what needs the user's device / can't be verified without human>
 
+## How to test
+
+<per shipped feature, the exact steps a human takes: URL, account to use, what to click, what you should see. Say what an agent already covered so the user does not repeat it, and which flows only a real device can check.>
+
+1. <feature> — <URL> · <account> · <steps> · expect <result>
+
 ## Your checklist
 
 <numbered list of manual actions the user needs to take, ordered by priority>
@@ -93,7 +105,7 @@ Loop ended — <one-liner: nothing left / next natural checkpoint>.
 ## What NOT to do
 
 - Don't summarize with prose paragraphs — the user reads this on their phone before coffee. Table + bullets.
-- Don't include "Timeline" or "Metrics" sections. Not what they asked for.
+- Don't include "Timeline" or "Metrics" sections (the one-line Progress count is not one). Not what they asked for.
 - Don't include the plan-doc's task list. They've already forgotten the task numbers; the PR titles carry the meaning.
 - Don't apologize for scope reductions. Frame them as scoping decisions with issues filed.
 - Don't include Copilot round-by-round detail. Just round count + best catches.
@@ -104,6 +116,24 @@ Loop ended — <one-liner: nothing left / next natural checkpoint>.
 ## Voice
 
 Casual openers, ONE all-caps callout allowed if the news warrants ("ALL 6 PRS ARE MERGED"), and cut roughly a third from a first draft. Where the project's extension describes the user's own voice, match it. Read the whole thing aloud once before shipping — if any sentence takes >5 seconds to parse, cut it.
+
+## Delivery
+
+Writing the report is not delivering it. After the report is final, send it so the user does not have
+to come back to the computer to learn the run ended:
+
+1. Save the report markdown to a file under `$CLAUDE_JOB_DIR/tmp` (or the session scratch folder).
+2. Email it: `node ~/.claude/fwd/lib/send-report.mjs --subject "<subject>" --body-file <file>`.
+   Subject: `[done] <epic> — <N of M merged>` when the run finished, `[needs input] <epic> — <the decision>`
+   when it is blocked on the user. The script reads `RESEND_API_KEY`, `EMAIL_FROM` and `REPORT_EMAIL_TO`
+   from the environment, or from `report-email.json` in the plugin data folder.
+3. Ping the phone with `PushNotification`: one line, the subject plus the single most important fact.
+   The email carries the detail.
+4. If the email fails (missing config, Resend error), say so in the push and in the final message, and
+   keep the report in the transcript. Never skip delivery silently.
+
+Send the `[needs input]` variant mid-run too, the moment the run blocks on a decision only the user can
+make, then keep working on anything unblocked.
 
 ## Related
 
