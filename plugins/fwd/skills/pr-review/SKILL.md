@@ -21,10 +21,14 @@ Copilot caught and Claude's review missed (the evidence is under the change free
 | **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                                                       | Green CI                                                               |
 
 - The gate classifies the PR (`copilot scope` line) and enforces this table. It refuses any Copilot
-  request on a non-risky PR. On a risky PR, never request one: write `## Copilot off` in the body
-  instead. **Until the gate recognises `## Copilot off`** (the plugin release after 0.1.18), it
-  still asks a risky PR for a Copilot round. Do not request one to satisfy it, and do not write
-  `## Copilot budget stop` in its place: hold that PR's merge until the gate release lands.
+  request on a non-risky PR. On a risky PR, never request one: write `## Copilot off` in the body.
+  **The `## Copilot off` door** (plugin 0.1.19): with that heading, a risky PR meets its bar when
+  `## Claude review` is a real record that names `/code-review` and holds a `Checklist pass:` line
+  that is itself a record (`Checklist pass: pending` is not). The gate prints a `copilot off` line on
+  every PR that declares it, says what is missing when the door stays shut, and refuses every
+  Copilot request while the heading is there. A risky PR without the heading is still held to one
+  Copilot round; that path stays only for the rollback trigger below. Destructive diffs take this
+  door too, as they took the budget stop: Claude's two passes are their review.
 - **`## Risk: not risky`** (Hugh, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review.
   Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
 - **Budget stop.** The `## Copilot budget stop` door is still in the gate, but with Copilot off it

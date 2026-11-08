@@ -28,7 +28,12 @@ import {
   parseDocSync,
   parseSettled,
 } from './settled.mjs';
-import { claudeReviewState, RECORD_HINT } from './claude-review.mjs';
+import {
+  claudeReviewState,
+  copilotOffDoor,
+  COPILOT_OFF_HINT,
+  RECORD_HINT,
+} from './claude-review.mjs';
 import { NOT_RISKY_TITLE, RISKY_PATH, riskOverride } from './risk-override.mjs';
 import {
   commentOnlyHunks,
@@ -480,6 +485,10 @@ const risky = pathRisky && !override.applied;
 const claudeReview = claudeReviewState(prData.body);
 const claudeReviewed = claudeReview.recorded;
 const claudePlaceholder = claudeReview.present && !claudeReview.recorded;
+// OWNER RULING 2026-11-08: Copilot is off. `## Copilot off` plus a Claude review recording both
+// `/code-review` and the `Checklist pass:` meets a risky PR's bar with no Copilot round, the same way
+// the budget stop does; with the heading present, no Copilot request is allowed (claude-review.mjs).
+const copilotOff = copilotOffDoor(prData.body);
 // Test, probe, script or copy-only PRs take no review at all, like doc-only ones (owner ruling 2026-10-30).
 // Narrower than isTooling: no package.json, lockfile or CI config (a dependency bump is code), and a
 // probe counts only as a directory, never a runtime path that happens to say "probe".
@@ -882,7 +891,8 @@ const needed = destructive
 const barMet =
   (docOnly && !destructive) ||
   noReview ||
-  (budgetStop && (!risky || claudeReviewed))
+  (budgetStop && (!risky || claudeReviewed)) ||
+  (copilotOff.declared && (risky ? copilotOff.opens : claudeReviewed))
     ? true
     : risky
       ? scored.length >= 1
@@ -891,7 +901,11 @@ say(
   true,
   'copilot scope     ',
   risky
-    ? `RISKY: ${riskyPaths.slice(0, 4).join(', ') || 'destructive diff'}; one Copilot round`
+    ? `RISKY: ${riskyPaths.slice(0, 4).join(', ') || 'destructive diff'}; ${
+        copilotOff.declared
+          ? `Copilot off: /code-review ${copilotOff.codeReview ? 'recorded' : 'needed'}, checklist pass ${copilotOff.checklist ? 'recorded' : 'needed'}`
+          : 'write `## Copilot off` and record /code-review plus the checklist pass (owner ruling 2026-11-08)'
+      }`
     : docOnly || noReview
       ? 'doc/test/script/copy-only: no review'
       : `not risky${override.applied ? ` (declared under ${NOT_RISKY_TITLE})` : ''}: Claude review${claudeReviewed ? ' recorded' : claudePlaceholder ? ' heading is a placeholder, not a record' : ' needed'}, no Copilot`,
@@ -909,6 +923,17 @@ else if (override.declared)
     true,
     'risk override     ',
     `${NOT_RISKY_TITLE} IGNORED: ${override.ignored}${override.reason ? ` (reason given: "${clip(override.reason)}")` : ''}`,
+  );
+// Printed on every PR that declares it, like the budget stop, so the month report can count it.
+if (copilotOff.declared)
+  say(
+    !risky || copilotOff.opens,
+    'copilot off      ',
+    !risky
+      ? '`## Copilot off` in the body: no Copilot requests (owner ruling 2026-11-08)'
+      : copilotOff.opens
+        ? '`## Copilot off` in the body: merging on /code-review + checklist pass, no Copilot round (owner ruling 2026-11-08)'
+        : `\`## Copilot off\` in the body, but missing ${copilotOff.missing.join('; ')}`,
   );
 if (budgetStop)
   say(
@@ -1020,11 +1045,13 @@ say(
       ? 'doc, test, script or copy-only: no review round needed (owner ruling 2026-10-30)'
       : budgetStop
         ? 'Copilot budget stop recorded: merging on green CI'
-        : risky
-          ? `risky PR: ${scored.length} Copilot round(s), one required (owner ruling 2026-10-30)`
-          : claudeReviewed
-            ? 'not risky: Claude review recorded (owner ruling 2026-10-30)'
-            : `not risky: ${scored.length} Copilot round(s) already ran, which also meets the bar`
+        : copilotOff.declared && risky && copilotOff.opens
+          ? 'risky PR, Copilot off: /code-review and checklist pass recorded (owner ruling 2026-11-08)'
+          : risky
+            ? `risky PR: ${scored.length} Copilot round(s), one required (owner ruling 2026-10-30)`
+            : claudeReviewed
+              ? 'not risky: Claude review recorded (owner ruling 2026-10-30)'
+              : `not risky: ${scored.length} Copilot round(s) already ran, which also meets the bar`
     : softFixed
       ? `round ${last.n} earns no new round (${softFixedWhy}) — §5 says merge without another round`
       : hardStop && destructive
@@ -1214,8 +1241,11 @@ if (action === 'merge') {
   } else if (!barMet) {
     blocks.push(
       (risky
-        ? `bar not met: risky code PR (${riskyPaths.slice(0, 3).join(', ') || 'destructive diff'}) takes exactly one ` +
-          `Copilot round (owner ruling 2026-10-30); request it, fix what it finds, then merge.`
+        ? `bar not met: risky code PR (${riskyPaths.slice(0, 3).join(', ') || 'destructive diff'}) takes a Claude ` +
+          `review with no Copilot (owner ruling 2026-11-08). Missing: ${copilotOff.missing.join('; ')}. ` +
+          `Run /code-review medium, then the risk checklist pass; write \`## Copilot off\`, and ` +
+          COPILOT_OFF_HINT +
+          '.'
         : claudePlaceholder
           ? 'bar not met: the `## Claude review` section is empty or a placeholder (pending, TBD, n/a), ' +
             'which is not a record. Run the review, then ' +
@@ -1238,6 +1268,13 @@ if (action === 'merge') {
 
 if (action === 'rerequest') {
   console.log('');
+  if (copilotOff.declared) {
+    blocks.push(
+      '`## Copilot off` is in the PR body: no Copilot request on this PR (owner ruling 2026-11-08). ' +
+        'Run /code-review medium and the risk checklist pass, record both under `## Claude review`, ' +
+        'and merge on green CI.',
+    );
+  }
   if (!risky && !(docOnly && !destructive) && !noReview) {
     blocks.push(
       (override.applied
