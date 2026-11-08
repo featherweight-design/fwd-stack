@@ -80,3 +80,72 @@ export function claudeReviewState(body) {
   const { present, recorded } = sectionState(body, HEADING);
   return { present, recorded };
 }
+
+// OWNER RULING 2026-11-08: Copilot is off. A risky PR meets its bar with no Copilot round when the
+// body carries a `## Copilot off` heading AND its `## Claude review` records both passes the ruling
+// asks for: `/code-review` (named anywhere in the section) and a `Checklist pass:` line whose own
+// text is a real record by the rule above ("Checklist pass: no findings." counts,
+// "Checklist pass: pending" does not). Both are looked for inside the Claude review section only, so
+// a later section cannot stand in for either.
+const COPILOT_OFF = /^##[ \t]+Copilot off[ \t]*$/im;
+const CHECKLIST =
+  /^[ \t>*_-]*(?:\*\*|__)?Checklist pass(?:\*\*|__)?[ \t]*:([^\n]*)$/im;
+const CODE_REVIEW = /\/code-review\b/;
+
+/** The text a risky `## Copilot off` record must hold, said where the gate refuses it. */
+export const COPILOT_OFF_HINT =
+  'under `## Claude review`, name `/code-review medium` and what it found, then a line ' +
+  '"Checklist pass: <n> findings (C/H/M/L), <what was fixed>" or "Checklist pass: no findings."';
+
+/**
+ * `{ declared, codeReview, checklist, opens, missing }` for a PR body. `declared` when the
+ * `## Copilot off` heading exists; `codeReview` and `checklist` when the Claude review section
+ * records each pass; `opens` when the heading is declared and the section is a real record holding
+ * both; `missing` names what is not there yet, in the order to fix it.
+ */
+export function copilotOffDoor(body) {
+  // Everything inside an HTML comment is invisible, headings included: a commented-out
+  // `## Copilot off` or `## Claude review` declares and records nothing. CRLF bodies (web edits)
+  // are read as LF, so a heading's line end still matches.
+  const text = (body ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ');
+  const declared = COPILOT_OFF.test(text);
+  const review = sectionState(text, HEADING);
+  const m = HEADING.exec(text);
+  const section = m
+    ? `${m[1] ?? ''}\n${text.slice(m.index + m[0].length).split(/^#{1,2}[ \t]/m)[0]}`
+    : '';
+  const codeReview = CODE_REVIEW.test(section);
+  const line = CHECKLIST.exec(section);
+  const parts = line ? clauses(line[1]) : [];
+  // The unfilled hint ("Checklist pass: <n> findings (C/H/M/L), <what was fixed>") is not a record.
+  const checklist =
+    !/<[^>\n]*>/.test(line?.[1] ?? '') &&
+    parts.length > 0 &&
+    !PLACEHOLDER_OPENER.test(parts[0]) &&
+    !parts.some((c) => PLACEHOLDER_CLAUSE.test(c));
+  const missing = [
+    !declared && 'the `## Copilot off` heading',
+    !review.recorded && 'a real `## Claude review` record',
+    !codeReview && 'the `/code-review` pass in `## Claude review`',
+    !checklist && 'a `Checklist pass:` line in `## Claude review`',
+  ].filter(Boolean);
+  return {
+    declared,
+    codeReview,
+    checklist,
+    opens: declared && review.recorded && codeReview && checklist,
+    missing,
+  };
+}
+
+/**
+ * The risky-PR merge bar the `## Copilot off` door decides, or `null` where the door does not apply
+ * (no heading, or a PR that is not risky: those keep their own bar). With the heading on a risky PR
+ * the door alone decides: a Copilot round already on the PR, or a `## Copilot budget stop`, does not
+ * stand in for the two Claude passes.
+ */
+export function copilotOffBar(door, risky) {
+  return door.declared && risky ? door.opens : null;
+}

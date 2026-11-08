@@ -21,14 +21,23 @@ Copilot caught and Claude's review missed (the evidence is under the change free
 | **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                                                       | Green CI                                                               |
 
 - The gate classifies the PR (`copilot scope` line) and enforces this table. It refuses any Copilot
-  request on a non-risky PR. On a risky PR, never request one: write `## Copilot off` in the body
-  instead. **Until the gate recognises `## Copilot off`** (the plugin release after 0.1.18), it
-  still asks a risky PR for a Copilot round. Do not request one to satisfy it, and do not write
-  `## Copilot budget stop` in its place: hold that PR's merge until the gate release lands.
+  request on a non-risky PR. On a risky PR, write `## Copilot off` in the body and request nothing.
+  **The `## Copilot off` door** (plugin 0.1.19): with that heading, a risky PR meets its bar only
+  when `## Claude review` is a real record that names `/code-review` and holds a `Checklist pass:`
+  line that is itself a record (`Checklist pass: pending`, or the unfilled hint, is not). A Copilot
+  round already on the PR, or a `## Copilot budget stop`, does not stand in for it. The gate prints a
+  `copilot off` line on every PR that declares the heading, says what is missing while the door is
+  shut, and refuses every Copilot request while the heading is there. Destructive diffs take this
+  door too: with no Copilot rounds to stand clean after clean, the two Claude passes are their
+  review. On a PR that declares the heading, §8's clean-after-clean rounds and §7's "the merge waits
+  for the user" stop on a destructive path do not apply; read the diff's deletes and overwrites with
+  the care those rules were written for. Without the heading the gate still accepts one Copilot round
+  on a risky PR; that path exists only for the rollback trigger below and is never used otherwise.
 - **`## Risk: not risky`** (Hugh, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review.
   Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
-- **Budget stop.** The `## Copilot budget stop` door is still in the gate, but with Copilot off it
-  has no use. It is not a substitute for `## Copilot off`.
+- **Budget stop.** The `## Copilot budget stop` door is still in the gate, but do not use it: on a
+  risky PR that declares `## Copilot off` the gate ignores it, and it is not a substitute for that
+  heading.
 - **Which Claude reviewer.**
   - **Risky PRs: `/code-review medium`, then the risk checklist pass.** Dispatch a general-purpose
     subagent with `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/risk-checklist-prompt.md` as its prompt,
