@@ -161,8 +161,8 @@ This is the outermost of four layers. An item must survive all four:
 
 During autonomous runs, collect surviving proposals into a **Proposed intake** section of this
 audit's own report (the ledger's summary). When the run also ends with a `feature-run-report`
-morning report, that report's fixed shape gets at most one line in its checklist of manual
-actions pointing here — never the proposals themselves. File only what comes back approved. Ask proposals as one-line questions inline —
+emailed report, that report gets at most one line in its waiting-on-you box pointing here — never
+the proposals themselves. File only what comes back approved. Ask proposals as one-line questions inline —
 never a bulk-approve document.
 
 ---

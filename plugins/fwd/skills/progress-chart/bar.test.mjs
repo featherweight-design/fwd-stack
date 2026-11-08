@@ -70,3 +70,14 @@ test('bad counts are refused', () => {
   assert.throws(() => cells(-1, 0, 5));
   assert.throws(() => cells(1.5, 0, 5));
 });
+
+test('another width sums to that width, and a bad width is refused', () => {
+  for (let total = 1; total <= 20; total++) {
+    for (let done = 0; done <= total; done++) {
+      const out = cells(done, 0, total, 10);
+      assert.equal(out[0] + out[1] + out[2], 10);
+    }
+  }
+  assert.throws(() => cells(1, 0, 2, 10.5), /not a bar width/);
+  assert.throws(() => cells(1, 0, 2, 0), /not a bar width/);
+});
