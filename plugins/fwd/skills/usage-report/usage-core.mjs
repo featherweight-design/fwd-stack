@@ -169,7 +169,7 @@ export function render(acc, { days, top = 10 } = {}) {
           `| ${acc.names.get(id) ?? id.slice(0, 8)} | ${s.projects.size > 1 ? `${rank(s.projects)[0][0]} (+${s.projects.size - 1})` : rank(s.projects)[0][0]} | ${pct(s.weight, acc.total)} | ${s.turns} | ${k(median(s.contexts))} | ${k(Math.max(0, ...s.contexts))} |`,
       ),
     '',
-    'A long session at a large context is the usual cost: every turn re-reads all of it. Rotate lanes at `rotateAt`, start fresh sessions per PR or two, and put routine lane work on Sonnet.',
+    'A long session at a large context is the usual cost: every turn re-reads all of it. Rotate lanes at `rotateAt` while the user is present, start fresh sessions per PR or two, and put routine lane work on Sonnet.',
   ];
   return lines.join('\n') + '\n';
 }

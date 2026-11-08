@@ -126,15 +126,24 @@ test('context is the last main-session turn, read from the tail', () => {
   );
 });
 
-test('while the user is away the critical line says keep working, never rotate', () => {
-  const m = budgetMessage(500_000, { warn: 150_000, critical: 450_000 }, true);
-  assert.match(m, /USER AWAY/);
-  assert.match(m, /keep working/);
-  assert.doesNotMatch(m, /ask the orchestrator to rotate/);
-  assert.match(
-    budgetMessage(500_000, { warn: 150_000, critical: 450_000 }),
-    /CRITICAL/,
+test('while the user is away both lines say keep working, never rotate or stop', () => {
+  const l = { warn: 150_000, critical: 450_000 };
+  for (const context of [200_000, 500_000, 900_000]) {
+    const m = budgetMessage(context, l, true);
+    assert.match(m, /USER AWAY/);
+    assert.match(m, /keep working/);
+    assert.match(m, /rotation line does not apply while they are away/);
+    assert.match(m, /Never stop, or ask to stop, for context/);
+    assert.doesNotMatch(m, /rotation at/);
+    assert.doesNotMatch(m, /ask the orchestrator to rotate/);
+  }
+  assert.equal(
+    budgetMessage(149_999, l, true),
+    null,
+    'quiet below the warning line',
   );
+  assert.match(budgetMessage(200_000, l), /WARNING.*rotation at 450k/);
+  assert.match(budgetMessage(500_000, l), /CRITICAL/);
 });
 
 test('switching between away and present announces the band again', () => {

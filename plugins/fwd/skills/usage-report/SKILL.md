@@ -30,7 +30,8 @@ It reads `<config>/projects/**/*.jsonl`, costs no model tokens, and prints markd
   its context, because every turn re-reads all of it. A median context of 300k or more across
   hundreds of turns is the usual cause of running out.
 - **What to change** (report it to the user, do not change it yourself):
-  - Lanes past `rotateAt` rotate at their next PR boundary (`orchestrator` §7).
+  - Lanes past `rotateAt` rotate at their next PR boundary while the user is present
+    (`orchestrator` §7).
   - Fresh sessions per PR or two, not one per lane per day.
   - Routine lane work on Sonnet where quality holds (`maxOpusLanes`).
   - Fewer parallel lanes if the allowance is the constraint (`maxLanes`).

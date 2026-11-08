@@ -10,8 +10,9 @@
 //     above it), so a session running unattended, which sees no user prompt for hours, is told too.
 //
 // Lines: `sessionBudget.warnTokens` (default 150k) and `orchestrator.rotateAt` (default 450k),
-// the same line the orchestrator rotates lanes at. While the user is away (lib/away.mjs) the
-// critical line tells a session to keep working: nobody is there to restart it.
+// the same line the orchestrator rotates lanes at. While the user is away (lib/away.mjs) both lines
+// tell a session to keep working: the rotation line does not apply, nobody is there to restart it,
+// and the harness compacts context on its own.
 import {
   closeSync,
   mkdirSync,
@@ -51,8 +52,8 @@ const k = (n) => `${Math.round(n / 1000)}k`;
 
 export function budgetMessage(context, { warn, critical }, away = false) {
   if (context === null || context < warn) return null;
-  if (context >= critical && away)
-    return `[SESSION BUDGET — USER AWAY] This session's context is ~${k(context)} tokens, past the ${k(critical)} rotation line. The user is away, so do not stop or wait for rotation: keep working with lean turns, and write your handoff at each PR boundary so a restart can pick up from it. Rotation waits for the user's return.`;
+  if (away)
+    return `[SESSION BUDGET — USER AWAY] This session's context is ~${k(context)} tokens. The user is away, so keep working: the ${k(critical)} rotation line does not apply while they are away, and the harness compacts context automatically. Never stop, or ask to stop, for context, even when the next PR looks too big to fit. Keep turns lean and write your handoff at each PR boundary.`;
   if (context >= critical)
     return `[SESSION BUDGET CRITICAL] This session's context is ~${k(context)} tokens, past the ${k(critical)} rotation line, and every turn re-reads all of it. At your next PR boundary: as a lane, write your handoff and ask the orchestrator to rotate you; otherwise suggest the user run /compact or start a fresh session. Until then, keep reads tight.`;
   return `[SESSION BUDGET WARNING] This session's context is ~${k(context)} tokens (rotation at ${k(critical)}), and every turn re-reads all of it. Keep reads tight; plan to hand off or compact at the next natural boundary.`;
