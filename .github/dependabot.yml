@@ -9,6 +9,16 @@ updates:
       time: '06:00'
       timezone: America/Denver
     open-pull-requests-limit: 5
+    # Majors on hold. baseline.json pins eslint at 9, and ESLint 10 waits until
+    # eslint-plugin-react, -import and -jsx-a11y declare ESLint 10 peer support.
+    # @types/node majors follow the Node 24 runtime, not the newest Node.
+    ignore:
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@eslint/js'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       npm-non-major-updates:
         update-types:
