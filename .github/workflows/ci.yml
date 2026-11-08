@@ -19,8 +19,9 @@ jobs:
     with:
       scripts: format:check typecheck lint test
 
-  # The kit checks itself against its own baseline, reading the check from this branch.
+  # The kit checks itself against its own baseline, reading the check from the commit under test.
+  # A pull request's head SHA is fetchable from this repository even when the PR comes from a fork.
   baseline:
     uses: ./.github/workflows/baseline.yml
     with:
-      kit-ref: ${{ github.head_ref || github.ref }}
+      kit-ref: ${{ github.event.pull_request.head.sha || github.sha }}

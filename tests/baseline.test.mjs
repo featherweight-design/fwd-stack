@@ -182,6 +182,45 @@ test('"node" and "pnpm" in the root ignore list skip those checks', () => {
   );
 });
 
+test('a range with several branches passes when any branch is the baseline', () => {
+  assert.deepEqual(
+    messages({
+      packages: [root({ dependencies: { next: '^15.0.0 || ^16.0.0' } })],
+    }),
+    [],
+  );
+  assert.deepEqual(
+    messages({
+      packages: [root({ dependencies: { next: '^14.0.0 || ^15.0.0' } })],
+    }),
+    [
+      'package.json: next ^14.0.0 || ^15.0.0 in dependencies; the baseline is 16',
+    ],
+  );
+});
+
+test('an ignore list that is not an array of names is an error, not an empty list', () => {
+  assert.throws(
+    () => messages({ packages: [root({ fwdBaseline: { ignore: 'zod' } })] }),
+    /package\.json: fwdBaseline\.ignore must be an array/,
+  );
+});
+
+test('a Node pin that is not a version, or a missing root package.json, is reported', () => {
+  assert.deepEqual(
+    messages({ packages: [root({})], nodePin: pin('lts/*\n') }),
+    [
+      '.nvmrc: Node pin lts/* is not a version number; the baseline is at least 24.22.1',
+    ],
+  );
+  assert.deepEqual(
+    messages({ packages: [{ path: 'apps/web/package.json', json: {} }] }),
+    [
+      'package.json: no tracked root package.json, so packageManager cannot be checked',
+    ],
+  );
+});
+
 test('the CLI reads tracked package.json files, skips fixtures, and fails only in fail mode', () => {
   const dir = mkdtempSync(join(tmpdir(), 'fwd-baseline-'));
   try {

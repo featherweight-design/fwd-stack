@@ -1,8 +1,9 @@
-// Compares a project against baseline.json. Run by .github/workflows/baseline.yml in the caller's
-// checkout: `node baseline-check.mjs <path to baseline.json>`, with MODE=warn (default) or fail.
+// Compares a project against baseline.json. .github/workflows/baseline.yml runs it from the
+// caller's checkout as `node .fwd-kit/scripts/baseline-check.mjs .fwd-kit/baseline.json`, with
+// MODE=warn (default) or fail.
 // `check` is pure so tests/baseline.test.mjs can feed it sample package.json files.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'optionalDependencies'];
@@ -19,6 +20,26 @@ const numbers = (spec) => {
     : null;
 };
 
+// A package.json's fwdBaseline.ignore. Anything but an array of strings is an error, not a
+// silently empty list.
+const ignoreList = ({ path, json }) => {
+  const list = json.fwdBaseline?.ignore ?? [];
+  if (!Array.isArray(list) || list.some((name) => typeof name !== 'string'))
+    throw new Error(
+      `${path}: fwdBaseline.ignore must be an array of package names`,
+    );
+  return list;
+};
+
+// Whether a declared spec allows the baseline version. Each `||` branch is read on its own, so
+// `^15.0.0 || ^16.0.0` allows 16. Null when no branch names a version (workspace:*, catalog:).
+const allows = (spec, want) => {
+  const parts = want.split('.').length;
+  const branches = spec.split('||').map(numbers).filter(Boolean);
+  if (!branches.length) return null;
+  return branches.some((got) => got.slice(0, parts).join('.') === want);
+};
+
 // Whether a pin is older than the minimum. A pin that omits its minor or patch ("24") resolves to
 // the newest one, so only the parts the pin states are compared.
 const below = (pin, min) => {
@@ -32,22 +53,16 @@ const below = (pin, min) => {
  */
 export function check({ baseline, packages, nodePin }) {
   const root = packages.find((p) => p.path === 'package.json');
-  const rootIgnore = root?.json.fwdBaseline?.ignore ?? [];
+  const rootIgnore = root ? ignoreList(root) : [];
   const findings = [];
   for (const { path, json } of packages) {
-    const ignore = new Set([
-      ...rootIgnore,
-      ...(json.fwdBaseline?.ignore ?? []),
-    ]);
+    const ignore = new Set([...rootIgnore, ...ignoreList({ path, json })]);
     for (const [name, want] of Object.entries(baseline.packages)) {
       if (ignore.has(name)) continue;
       for (const field of DEP_FIELDS) {
         const spec = json[field]?.[name];
-        const got = spec === undefined ? null : numbers(spec);
-        if (!got) continue;
         // A 0.x pin ("0.45") compares major.minor; anything else compares the major.
-        const parts = want.split('.').length;
-        if (got.slice(0, parts).join('.') !== want)
+        if (typeof spec === 'string' && allows(spec, want) === false)
           findings.push({
             file: path,
             message: `${name} ${spec} in ${field}; the baseline is ${want}`,
@@ -57,10 +72,15 @@ export function check({ baseline, packages, nodePin }) {
   }
   if (!rootIgnore.includes('node')) {
     const pin = nodePin && numbers(nodePin.text.trim());
-    if (!pin)
+    if (!nodePin)
       findings.push({
-        file: nodePin?.path ?? 'package.json',
+        file: 'package.json',
         message: `no Node version pin (.nvmrc or .node-version) to check against ${baseline.nodeMinimum}`,
+      });
+    else if (!pin)
+      findings.push({
+        file: nodePin.path,
+        message: `Node pin ${nodePin.text.trim()} is not a version number; the baseline is at least ${baseline.nodeMinimum}`,
       });
     else if (
       pin[0] !== Number(baseline.node) ||
@@ -71,7 +91,13 @@ export function check({ baseline, packages, nodePin }) {
         message: `Node ${nodePin.text.trim()}; the baseline is Node ${baseline.node}, at least ${baseline.nodeMinimum}`,
       });
   }
-  if (root && !rootIgnore.includes('pnpm')) {
+  if (!root)
+    findings.push({
+      file: 'package.json',
+      message:
+        'no tracked root package.json, so packageManager cannot be checked',
+    });
+  else if (!rootIgnore.includes('pnpm')) {
     const [manager, version = ''] = (root.json.packageManager ?? '').split('@');
     if (
       manager !== 'pnpm' ||
@@ -85,7 +111,20 @@ export function check({ baseline, packages, nodePin }) {
   return findings;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Annotation text: GitHub reads %, CR and LF as escapes, and , and : end a property.
+const annotation = (text, property = false) => {
+  const out = text
+    .replace(/%/g, '%25')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A');
+  return property ? out.replace(/,/g, '%2C').replace(/:/g, '%3A') : out;
+};
+
+// realpath on both sides, so a symlinked path to the script still runs it rather than passing silently.
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
   const mode = process.env.MODE || 'warn';
   if (mode !== 'warn' && mode !== 'fail')
     throw new Error(`mode must be warn or fail, not ${mode}`);
@@ -107,7 +146,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const level = mode === 'fail' ? 'error' : 'warning';
   for (const { file, message } of findings)
     process.stdout.write(
-      `::${level} file=${file},title=fwd baseline::${message}\n`,
+      `::${level} file=${annotation(file, true)},title=fwd baseline::${annotation(message)}\n`,
     );
   process.stdout.write(
     `fwd baseline: ${findings.length} mismatch(es), mode ${mode}\n`,
