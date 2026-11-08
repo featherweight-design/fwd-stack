@@ -55,7 +55,7 @@ Every lane and subagent pays for the project's agent docs at start. Keep `AGENTS
 2. Take the roster of open lanes from the lanes' handoffs and `ListAgents`, not from a
    measurement: `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"` lists recently
    active sessions (the orchestrator included, and none idle for over two hours), so use it only to
-   measure each lane's context. Rotate any lane over `rotateAt` before giving it new work.
+   measure each lane's context. While the user is present, rotate any lane over `rotateAt` before giving it new work.
 3. For each ranked item the user has approved, decide its shape (§1). Write a brief (§3) for each
    lane item, and dispatch subagents for the rest.
 4. Arm the stall watchdog (`orchestrator` §6). When the user leaves, open the away window and arm the

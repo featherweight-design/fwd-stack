@@ -131,7 +131,7 @@ Per-turn context, not session length, drives cost: every turn re-reads the whole
   every lane at each watchdog wake and at each PR boundary:
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"`. It reads the away window
   itself, as does the session-budget hook, so no lane depends on remembering a flag.
-- **Rotate at a PR boundary** past `rotateAt`, or when a lane's context has bloated across many PRs.
+- **While the user is present, rotate at a PR boundary** past `rotateAt`, or when a lane's context has bloated across many PRs.
   The lane writes a handoff and gives the user a labelled restart prompt. An idle lane over the line
   rotates now. A lane with no ranked work closes, and gets no prompt.
 - **While the user is away, no lane stops for context.** The away window is the only switch:
