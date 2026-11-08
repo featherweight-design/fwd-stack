@@ -8,48 +8,80 @@ description: Use when running a GitHub Copilot review cycle on a pull request �
 **First, read the project's own rules.** If `.claude/fwd/pr-review.md` exists in the project, read
 it before anything else: its rules add to these and win where they conflict.
 
-## Owner ruling, 2026-10-30: Copilot only where it pays. This overrides §1, §5, §7 and §8 below
+## Owner ruling, 2026-10-30, amended 2026-11-08: Claude reviews, Copilot is off. This overrides §1, §5, §7 and §8 below
 
-Copilot review is billed per review to the org's AI credits. Measured on the-99: about $1.35 per
-review at Balanced and 4,228 reviews in October. The org now runs Lite effort with a $75 monthly
-budget and a hard stop. So:
+From 2026-11-08 no PR requests a Copilot review, risky ones included. Claude reviews every code
+PR, and risky PRs get a second, targeted pass: the risk checklist, aimed at the ten classes that
+Copilot caught and Claude's review missed (the evidence is under the change freeze below).
 
-| PR kind                                                                                                                                    | Review                                                                                                                                                                  | Merge bar                     |
-| ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| **Risky code**: destructive diff, migrations/schema, DB layer, auth/session/proxy, payments/credits/billing/webhooks, API routes, security | **One Copilot round.** Fix every valid finding. No confirmation rounds, no re-requests.                                                                                 | 1 scored round + green CI     |
-| **Other code**                                                                                                                             | **Claude review, no Copilot.** Dispatch the `caveman:cavecrew-reviewer` agent on the PR diff, fix what it finds, and record it in the PR body under `## Claude review`. | `## Claude review` + green CI |
-| **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                               | Green CI                      |
+| PR kind                                                                                                                                    | Review                                                                                                                                                                                          | Merge bar                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Risky code**: destructive diff, migrations/schema, DB layer, auth/session/proxy, payments/credits/billing/webhooks, API routes, security | **Claude review, two passes.** `/code-review medium` on the diff, then the risk checklist pass. Fix every valid finding. No Copilot.                                                            | `## Copilot off` + `## Claude review` recording both passes + green CI |
+| **Other code**                                                                                                                             | **Claude review.** Dispatch the `caveman:cavecrew-reviewer` agent on the PR diff with the addendum below, fix what it finds, and record it in the PR body under `## Claude review`. No Copilot. | `## Claude review` + green CI                                          |
+| **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                                                       | Green CI                                                               |
 
-- The gate classifies the PR (`copilot scope` line) and enforces this table. It refuses a second
-  Copilot request on a risky PR, and any request on a non-risky one.
-- **`## Risk: not risky`** (Hugh, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review, no Copilot. When unsure, record the call there and default to a Claude review.
+- The gate classifies the PR (`copilot scope` line) and enforces this table. It refuses any Copilot
+  request on a non-risky PR. On a risky PR, never request one: write `## Copilot off` in the body
+  instead. **Until the gate recognises `## Copilot off`** (the plugin release after 0.1.18), it
+  still asks a risky PR for a Copilot round. Do not request one to satisfy it, and do not write
+  `## Copilot budget stop` in its place: hold that PR's merge until the gate release lands.
+- **`## Risk: not risky`** (Hugh, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review.
   Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
-- **Budget stop.** When reviews stop landing because the monthly budget is spent, write
-  `## Copilot budget stop` in the PR body (the date and the failed request), then merge risky PRs on
-  green CI after a Claude review. No retry loops. The budget resets on the 1st.
-- **Which Claude reviewer.** Use the `caveman:cavecrew-reviewer` agent for non-risky code PRs. It is a
-  read-only subagent that returns one line per finding, so only the findings come back into the session
-  (about 55k subagent tokens on a 140-line gate change, which found a real bug). On a risky PR, run
-  `/code-review medium` on the diff as well as the Copilot round: the two catch different things.
-  Don't use a GitHub-side Claude Action; it bills API usage per run, which is the same problem as Copilot.
+- **Budget stop.** The `## Copilot budget stop` door is still in the gate, but with Copilot off it
+  has no use. It is not a substitute for `## Copilot off`.
+- **Which Claude reviewer.**
+  - **Risky PRs: `/code-review medium`, then the risk checklist pass.** Dispatch a general-purpose
+    subagent with `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/risk-checklist-prompt.md` as its prompt,
+    after `/code-review medium` has run and its fixes are pushed. The rules are §10b's for the
+    precheck pass: not a fork, the branch only, no plans or handoffs, the same subagent grant, and
+    verify every finding before acting on it. It is a separate pass, not an argument to
+    `/code-review`, so it runs the same in every repository and is scored on its own. It reports
+    Lows on comments, names, probes and selectors (its checks 8 and 9): fix those too.
+  - **Other code: `caveman:cavecrew-reviewer`.** It is a read-only subagent that returns one line
+    per finding, so only the findings come back into the session. Add this to its dispatch prompt:
+
+    ```markdown
+    Also check, and report under the same one-line format:
+
+    - every name, switch, label or route the diff removes or renames: `git grep` it on the branch and
+      report live hits left (code, tests, scripts, JSON inventories);
+    - every changed export or argument list: tests that mock it or assert on its call;
+    - each feature switch in the diff, OFF as well as ON: what does the reader see?;
+    - useState copied from a prop, a provider without a key, a success path that skips refresh;
+    - a probe that presses a route or selector the app does not have, or reads before it cleans up;
+    - a changed comment or name that no longer matches the code;
+    - the house rules in .claude/fwd/review-rules.md, if the file exists.
+    ```
+
+  - **House rules live in `.claude/fwd/review-rules.md`** in each project. Both passes read it.
+  - Don't use a GitHub-side Claude Action; it bills API usage per run.
 - **`## Claude review` records:** the reviewer used (`cavecrew-reviewer` or `/code-review <level>`), the
-  number of findings by severity, and what was fixed or declined. One short paragraph.
+  number of findings by severity, and what was fixed or declined. One short paragraph. On a risky
+  PR it records both passes, the checklist on its own line:
+  `Checklist pass: <n> findings (C/H/M/L), <what was fixed or declined>`, or
+  `Checklist pass: no findings.`
   The gate rejects a section that is empty or a placeholder (pending, TBD, todo, n/a, a comment).
-- **Measured for a month (2026-10-30 to 2026-11-30), then re-ruled.** Two questions: cost, and escaped
-  bugs. When a fix PR repairs a defect that an earlier merged PR introduced, its body names that PR
-  under `## Escaped from #N`. At the month's end, count Copilot AI credits, reviews by PR kind, and
-  escaped bugs by the review kind of the PR they escaped from (risky with Copilot, Claude review, no
-  review).
-- **Copilot vs Claude, head to head (risky PRs only).** Every risky PR gets both reviewers on the
-  same diff, so it is the comparison. Run `/code-review medium` BEFORE reading Copilot's round. Then
-  add one line to `## Claude review`: `A/B: Copilot <n> (C/H/M/L), Claude <n> (C/H/M/L), both <n>, Copilot-only real <n>, Claude-only real <n>`.
-  A finding is "real" if you fixed it. The month-end report adds these lines up. The question it
-  answers: can Claude replace Copilot entirely, which drops the $19 seat and the AI credits and leaves
-  one fewer tool.
-- Only on featherweight-design repos. A repo owned by a personal account bills the member's own
-  license, so Copilot stays off there entirely.
-- The rest of this document still governs how to read and triage a round: staleness, findings,
-  sweeping a class, `## Settled`, PR structure.
+- **A/B v2 line (risky PRs).** Add one line to `## Claude review`:
+  `A/B v2: Copilot off, Claude <n> (C/H/M/L), checklist-only real <n> [checks], code-review-only real <n>`.
+  A finding is "real" if you fixed it. The bracketed check numbers (1 to 10) show which checks
+  earn their keep; the month report adds these lines up. The older `A/B:` lines stay as history.
+- **Measured to 2026-11-30, then re-ruled.** Escapes are tracked four ways:
+  1. **Fix PRs name the source.** When a fix PR repairs a defect an earlier merged PR introduced,
+     its body names that PR under `## Escaped from #N`.
+  2. **A weekly sweep.** Each Friday, list the PRs merged that week with `fix`, `revert` or
+     `hotfix` in the title that touch a file a risky PR changed in the 14 days before, and label
+     each one an escape or not. This catches the escapes nobody labelled.
+  3. **An audit sample.** Every 5th merged risky PR gets a fresh-session `/code-review high` on its
+     merged diff the next day. A real finding counts as a latent escape. Kept through December,
+     then dropped if it has found nothing real.
+  4. **CI on main and runtime errors.** A red main after a risky merge, or a new error class in
+     the runtime logs for a touched route, is checked against the risky PRs.
+- **Rollback trigger.** Any Critical or High escape from a risky PR, or more than 1 Medium escape
+  per 15 risky PRs, ends Claude-only review on risky PRs: stop, report it to the owner, and give
+  risky PRs one Copilot round again until the policy is re-ruled. Below that line, Copilot stays
+  off.
+- The rest of this document still governs how to read and triage a review: staleness, findings,
+  sweeping a class, `## Settled`, PR structure. Where it says "round", read a review pass.
 
 Canonical policy for GitHub Copilot review cycles and PR structure.
 
@@ -122,6 +154,18 @@ Three specific cautions, each earned:
 
 Re-audit before changing anything: rounds per PR, cost per PR, and the door
 distribution above.
+
+**The 2026-11-08 change met that bar, and this is its evidence.** Over the risky PRs that ran both
+reviewers from 2026-10-30, Copilot found 33 real defects (fixed by the author) that Claude's review
+did not, across 15 PRs: 3 High, 15 Medium, 15 Low. They fall into ten classes, one check each in
+`risk-checklist-prompt.md`: check-then-act races (4), old state meeting new code (5), a retirement
+or filter not swept to its siblings (5), a change breaking an existing test (3), new behaviour no
+test pins (3), UI state not following its inputs (3), scripts, workflows and probes out of order
+(4), a comment, name or claim the code does not match (4), parsing that accepts impossible input
+(1) and a repository house rule only Copilot had been told (1). 22 of the 33 sat outside the diff:
+in old data, a sibling file, a test mocking the changed module, or the workflow calling a script.
+Do not add a check to that prompt, or tune one, without new measured evidence of the same kind: a
+class that escapes more than once.
 
 ## Why this exists
 
