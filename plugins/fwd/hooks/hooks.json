@@ -64,6 +64,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-budget.mjs",
             "timeout": 15
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/fwd-link.mjs",
+            "timeout": 10
           }
         ]
       }
@@ -75,6 +80,17 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-budget.mjs",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/fwd-link.mjs",
+            "timeout": 10
           }
         ]
       }
