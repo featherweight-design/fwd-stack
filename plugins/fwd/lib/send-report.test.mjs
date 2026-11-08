@@ -258,3 +258,55 @@ test('a Resend failure throws with its status', async () => {
     /Resend 403: nope/,
   );
 });
+
+test('an epic with a bad count fails naming the epic', () => {
+  assert.throws(
+    () => epicBar({ name: 'Checkout', done: 3, total: 2 }),
+    /epic Checkout: 3 \+ 0 is more than 2/,
+  );
+  assert.throws(() => epicBar({ name: 'Checkout' }), /epic Checkout:/);
+});
+
+test('bold markup inside a link url does not touch the href', () => {
+  const html = renderHtml({
+    headsUp: ['[a](https://example.com/**b**)'],
+    projects: [],
+  });
+  assert.ok(!html.includes('href="https://example.com/&lt;strong'));
+  assert.ok(!/href="[^"]*<strong/.test(html));
+});
+
+test('needsInput must be true, not merely truthy', () => {
+  assert.ok(!subjectFor({ needsInput: 'false', projects: [] }).startsWith('['));
+});
+
+test('a bad report todo url falls back to the config one', () => {
+  assert.match(
+    renderHtml(
+      { todo: { url: 'ftp://x' }, projects: [] },
+      { REPORT_TODO_URL: 'https://example.com/c' },
+    ),
+    /href="https:\/\/example.com\/c"/,
+  );
+});
+
+test('a null config file is treated as no file', () => {
+  const e = env(full);
+  writeFileSync(join(e.CLAUDE_PLUGIN_DATA, 'report-email.json'), 'null');
+  assert.equal(loadConfig(e).EMAIL_FROM, 'a@example.com');
+});
+
+test('sendReport sets a timeout on the request', async () => {
+  let init;
+  await sendReport(
+    { report: { projects: [] } },
+    {
+      env: env(full),
+      fetchFn: async (_url, i) => {
+        init = i;
+        return { ok: true, json: async () => ({ id: 'x' }) };
+      },
+    },
+  );
+  assert.ok(init.signal instanceof AbortSignal);
+});

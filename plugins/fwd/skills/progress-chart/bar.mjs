@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// The 20-cell bar for one feature line in the progress chart.
+// The 20-cell bar for one feature line in the progress chart (cells() also serves the run report's
+// 10-cell bar).
 //
 //   node bar.mjs <done> <inFlight> <total>
 //
-// Each segment is round(count * 20 / total); the rounding is then fixed so the bar is exactly 20
-// cells. Ties go to the not-started segment first, so a tie never overstates progress.
+// Each segment is round(count * width / total); the rounding is then fixed so the bar is exactly
+// `width` cells. Ties go to the not-started segment first, so a tie never overstates progress.
 import { fileURLToPath } from 'node:url';
 import { realpathSync } from 'node:fs';
 
@@ -14,6 +15,8 @@ export const GLYPHS = ['█', '▒', '░'];
 // Cell counts for [done, in flight, not started], always summing to `width` (WIDTH unless a caller,
 // such as the run report's 10-cell bar, asks for another).
 export function cells(done, inFlight, total, width = WIDTH) {
+  if (!Number.isInteger(width) || width < 1)
+    throw new Error(`not a bar width: ${width}`);
   for (const n of [done, inFlight, total]) {
     if (!Number.isInteger(n) || n < 0)
       throw new Error(`not a whole count: ${n}`);

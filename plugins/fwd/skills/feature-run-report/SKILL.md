@@ -24,7 +24,8 @@ old in-transcript "Morning report"; that shape (PR table, Copilot callouts, chec
 
 ## The report JSON
 
-Write one JSON file. Every field except `projects` is optional.
+Write one JSON file. Every field except `projects` is optional, and an epic needs `total`
+(a positive whole number, at least `done + inProgress`); a bad count fails the send naming the epic.
 
 ```json
 {
@@ -97,8 +98,11 @@ escaped. Never put a secret value in any field; name the variable and where to s
   test" / "Nothing waiting on you"; the renderer does this when the list is empty.
 - **Heads up, ideas, epics, also and the to-do link are optional.** Leave them out when empty; the
   renderer then drops the section.
-- **A setup step is waiting on the user.** New environment variables, services that are declared
-  but not created, a plugin to update: each is a `setup` item, naming where to do it, never the value.
+- **Sweep every PR in the run for setup the user owes.** New environment variables, new services
+  (cron jobs, workers, queues, buckets), a plugin to update: each is a `setup` item naming where to
+  do it, never the value. Say plainly when a service is only declared in the hosting config and not
+  yet created at the provider ("declared only, not created"): a cron that was never created logs
+  nothing and pages nobody. If a feature stays dormant until the step is done, say so.
 - **Say what you did not validate.** If a flow can only be checked on the user's own device, the
   `how` says so.
 - **Links are full URLs**, never a bare `#NNNN`.
@@ -117,7 +121,7 @@ Plain and short. No cute language. The user reads this on a phone.
 
 Writing the report is not delivering it. Never skip a step silently.
 
-1. Write the JSON to a file under `$CLAUDE_JOB_DIR/tmp` (or the session scratch folder).
+1. Write the JSON to a file in the session's scratch folder.
 2. Send it: `node ~/.claude/fwd/lib/send-report.mjs --data <file>`. It prints `sent <id>`. The
    subject is built from the counts (`✅ 9 ready · 🙋 2 need you · <run>`, with `[needs input]` in
    front when blocked); pass `--subject` only to override it. The script reads `RESEND_API_KEY`,

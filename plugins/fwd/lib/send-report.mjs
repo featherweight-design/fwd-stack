@@ -26,9 +26,10 @@ const OPTIONAL_KEYS = ['REPORT_TODO_URL'];
 export function loadConfig(env = process.env) {
   let file = {};
   try {
-    file = JSON.parse(
-      readFileSync(join(pluginDataDir(env), 'report-email.json'), 'utf8'),
-    );
+    file =
+      JSON.parse(
+        readFileSync(join(pluginDataDir(env), 'report-email.json'), 'utf8'),
+      ) ?? {};
   } catch {
     // no file: the environment alone must carry the config
   }
@@ -64,7 +65,7 @@ export const escapeHtml = (s) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const LINK = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+const LINK = /\[([^\]]+)\]\((https?:\/\/[^)\s*]+)\)/g;
 
 // Text fields allow two pieces of markup, applied after escaping: [text](https://url) and **bold**.
 const inline = (s) =>
@@ -93,12 +94,18 @@ export function subjectFor(report) {
   const n = counts(report);
   const parts = [`✅ ${n.ready} ready`, `🙋 ${n.waiting} need you`];
   if (report.run) parts.push(report.run);
-  return `${report.needsInput ? '[needs input] ' : ''}${parts.join(' · ')}`;
+  return `${report.needsInput === true ? '[needs input] ' : ''}${parts.join(' · ')}`;
 }
 
-// The 10-cell epic bar, counted the way the progress chart counts its 20-cell one.
-export function epicBar({ done = 0, inProgress = 0, total }) {
-  const [d, p, q] = cells(done, inProgress, total, 10);
+// The 10-cell epic bar, counted the way the progress chart counts its 20-cell one. A bad count is
+// an error naming the epic, so the caller can fix the JSON and resend.
+export function epicBar({ name, done = 0, inProgress = 0, total }) {
+  let d, p, q;
+  try {
+    [d, p, q] = cells(done, inProgress, total, 10);
+  } catch (err) {
+    throw new Error(`epic ${name ?? '(unnamed)'}: ${err.message}`);
+  }
   return '🟩'.repeat(d) + '🟨'.repeat(p) + '⬜'.repeat(q);
 }
 
@@ -213,9 +220,10 @@ const idea = (i) =>
 
 const todoLink = (report, config) => {
   const todo = report.todo ?? {};
-  const url = todo.url ?? config.REPORT_TODO_URL;
-  if (!url || !/^https?:\/\//.test(url)) return null;
-  return { url, label: todo.label ?? 'To-do list' };
+  const url = [todo.url, config.REPORT_TODO_URL].find((u) =>
+    /^https?:\/\//.test(u ?? ''),
+  );
+  return url ? { url, label: todo.label ?? 'To-do list' } : null;
 };
 
 export function renderHtml(report, config = {}) {
@@ -223,7 +231,10 @@ export function renderHtml(report, config = {}) {
   const tile = (bg, value, label, pad) =>
     `<td style="width:33%;${pad}"><div style="background:${bg};border-radius:8px;padding:10px;text-align:center"><div style="font-size:22px;font-weight:700">${value}</div><div style="font-size:12px">${label}</div></div></td>`;
   const out = [
-    `<h1 style="font-size:22px;margin:0 0 10px">${escapeHtml(report.title ?? (report.needsInput ? '🙋 Run needs you' : '🌙 Run update'))}</h1>`,
+    `<h1 style="font-size:22px;margin:0 0 10px">${escapeHtml(
+      report.title ??
+        (report.needsInput === true ? '🙋 Run needs you' : '🌙 Run update'),
+    )}</h1>`,
   ];
   if (report.run) {
     out.push(
@@ -267,7 +278,8 @@ export function renderHtml(report, config = {}) {
 export function renderText(report, config = {}) {
   const n = counts(report);
   const out = [
-    report.title ?? (report.needsInput ? 'Run needs you' : 'Run update'),
+    report.title ??
+      (report.needsInput === true ? 'Run needs you' : 'Run update'),
   ];
   if (report.run) out.push(report.run);
   out.push(
@@ -338,19 +350,25 @@ export async function sendReport(
       text: renderText(report, config),
       html: renderHtml(report, config),
     }),
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
   return res.json();
 }
 
 if (isMain(import.meta.url)) {
-  const { values } = parseArgs({
-    options: { subject: { type: 'string' }, data: { type: 'string' } },
-  });
+  const usage = 'usage: send-report.mjs --data <report.json> [--subject <s>]';
+  let values;
+  try {
+    ({ values } = parseArgs({
+      options: { subject: { type: 'string' }, data: { type: 'string' } },
+    }));
+  } catch (err) {
+    console.error(`${err.message}\n${usage}`);
+    process.exit(2);
+  }
   if (!values.data) {
-    console.error(
-      'usage: send-report.mjs --data <report.json> [--subject <s>]',
-    );
+    console.error(usage);
     process.exit(2);
   }
   try {
