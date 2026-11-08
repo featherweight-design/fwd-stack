@@ -18,3 +18,9 @@ jobs:
     uses: ./.github/workflows/node-ci.yml
     with:
       scripts: format:check typecheck lint test
+
+  # The kit checks itself against its own baseline, reading the check from this branch.
+  baseline:
+    uses: ./.github/workflows/baseline.yml
+    with:
+      kit-ref: ${{ github.head_ref || github.ref }}
