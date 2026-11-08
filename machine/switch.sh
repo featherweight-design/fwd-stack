@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install the fwd plugin on this machine, and retire any user-scope copies of its skills and hooks.
-# Works on a fresh machine (nothing to retire), on one that ran the skills from ~/.claude/skills,
-# and on one already switched (it updates the plugin and re-links).
+# A one-time setup: works on a fresh machine (nothing to retire) and on one that ran the skills from
+# ~/.claude/skills. Re-running it on a switched machine is harmless, but an update does not need it:
+# use machine/update.sh or marketplace auto-update, then /reload-plugins (README, "Updating").
 #
 #   machine/switch.sh --dry-run   print every step, change nothing
 #   machine/switch.sh             back up, apply, verify; any failure after the backup rolls back
