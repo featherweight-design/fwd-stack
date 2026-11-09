@@ -12,7 +12,12 @@
 //   - inline code (`node -e`, `python -c`, `bun -e`, `deno eval`, `ruby -e`, `perl -e`, or a
 //     heredoc fed to one) that touches the environment, unless every touch only tests presence:
 //     `Boolean(process.env.X)`, `!!process.env.X`, `'X' in process.env`, `bool(os.getenv('X'))`;
-//   - reading `/proc/<pid>/environ` or `/proc/<pid>/cmdline`.
+//   - reading `/proc/<pid>/environ` or `/proc/<pid>/cmdline`;
+//   - a recursive `grep -r` (or `rg --hidden`/`-uu`) over a folder that holds a `.env` file,
+//     unless `--exclude`/`--include` (or an `rg -g` glob) keeps .env files out;
+//   - `echo`/`printf` of a variable whose name marks it secret (`$API_KEY`, `$DATABASE_URL`,
+//     `$GH_TOKEN`) when the output reaches the terminal; piping it into another program or
+//     redirecting it to a file is fine.
 //
 // The command is parsed the way a shell splits it: pipes, `&&`, `||`, `;`, `&`, newlines,
 // subshells, `$(...)`, backticks and process substitution all yield separate commands, and each is
@@ -108,7 +113,9 @@ class Parser {
       } else if (c === '$') {
         append(this.dollar(false));
       } else if (c === ';' || c === '|') {
+        const piped = c === '|' && s[this.i + 1] !== '|' ? seg : null;
         endSegment();
+        if (piped) piped.pipeTo = seg;
         this.i++;
         while (s[this.i] === ';' || s[this.i] === '|' || s[this.i] === '&')
           this.i++;
@@ -176,7 +183,13 @@ class Parser {
 
   newSegment() {
     // `expands`: names of variables the shell expands in this command (not single-quoted).
-    const seg = { words: [], redirects: [], heredocs: [], expands: [] };
+    const seg = {
+      words: [],
+      redirects: [],
+      heredocs: [],
+      expands: [],
+      pipeTo: null,
+    };
     this.segments.push(seg);
     this.seg = seg;
     return seg;
@@ -312,7 +325,8 @@ const isOption = (w) => w.length > 1 && w.startsWith('-');
 const TEMPLATE_SUFFIX = /\.(example|sample|template|dist)$/;
 // A .env-style file: basename starts with `.env` (`.env`, `.env.local`, `.envrc`, `.env*`).
 export function isSecretEnvFile(path) {
-  const b = basename(path);
+  // Case-folded: macOS file systems treat `.Env` and `.env` as the same file.
+  const b = basename(path).toLowerCase();
   return b.startsWith('.env') && !TEMPLATE_SUFFIX.test(b);
 }
 const PROC_SECRET = /^\/proc\/[^/]+\/(environ|cmdline)$/;
@@ -556,9 +570,24 @@ const READERS = new Set([
 ]);
 // Readers whose first positional argument is a pattern or program, not a file.
 const PATTERN_FIRST = {
-  grep: { value: 'efABCmdD', patternOpts: 'ef', long: ['regexp', 'file'] },
-  egrep: { value: 'efABCmdD', patternOpts: 'ef', long: ['regexp', 'file'] },
-  fgrep: { value: 'efABCmdD', patternOpts: 'ef', long: ['regexp', 'file'] },
+  grep: {
+    value: 'efABCmdD',
+    patternOpts: 'ef',
+    long: ['regexp', 'file'],
+    valueLong: ['exclude', 'include', 'exclude-dir'],
+  },
+  egrep: {
+    value: 'efABCmdD',
+    patternOpts: 'ef',
+    long: ['regexp', 'file'],
+    valueLong: ['exclude', 'include', 'exclude-dir'],
+  },
+  fgrep: {
+    value: 'efABCmdD',
+    patternOpts: 'ef',
+    long: ['regexp', 'file'],
+    valueLong: ['exclude', 'include', 'exclude-dir'],
+  },
   rg: {
     value: 'efABCmgtTMj',
     patternOpts: 'ef',
@@ -599,6 +628,16 @@ const ROOTISH = new Set([
   '.*',
 ]);
 
+// Set by secretDecision for one call: (dir) => true | false | null, whether a folder holds a .env
+// file (null when it cannot tell). Without one, the guard assumes a root-like or absolute path,
+// or one built from a variable, holds one, and a relative subfolder does not.
+let envProbe = null;
+function holdsEnvFile(root) {
+  const known = envProbe?.(root);
+  if (known === true || known === false) return known;
+  return ROOTISH.has(root) || root.startsWith('/') || root.includes('$');
+}
+
 function readerRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
   if (sources.some((t) => PROC_SECRET.test(t)))
@@ -615,7 +654,7 @@ function readerRule(name, args, redirects) {
   const { positionals, values, flags } = scanArgs(
     args,
     pf ? pf.value : (READER_VALUES[name] ?? ''),
-    pf ? [...pf.long, ...(pf.globOpts ?? [])] : [],
+    pf ? [...pf.long, ...(pf.globOpts ?? []), ...(pf.valueLong ?? [])] : [],
   );
   // grep -c / -l / -q report counts, names or an exit code, never the matching lines.
   const QUIET = [
@@ -656,13 +695,21 @@ function readerRule(name, args, redirects) {
       args.some((a) => /^-[a-zA-Z]*u[a-zA-Z]*u/.test(a)) ||
       flags.includes('.'));
   if (recursive || hiddenRg) {
-    const excluded = values.some(
-      (v) =>
-        (v.opt === 'exclude' && v.value.startsWith('.env')) ||
-        (pf.globOpts?.includes(v.opt) && /^!.*\.env/.test(v.value)),
+    const globs = values.filter(
+      (v) => v.opt === 'include' || pf.globOpts?.includes(v.opt),
     );
+    // An include filter (or a positive rg glob) that no .env file matches keeps them all out.
+    const positive = globs.filter((v) => !v.value.startsWith('!'));
+    const excluded =
+      values.some(
+        (v) =>
+          (v.opt === 'exclude' && v.value.toLowerCase().startsWith('.env')) ||
+          (pf.globOpts?.includes(v.opt) && /^!.*\.env/i.test(v.value)),
+      ) ||
+      (positive.length > 0 &&
+        !positive.some((v) => v.value.toLowerCase().includes('.env')));
     const roots = afterPattern();
-    if (!excluded && (roots.length === 0 || roots.some((r) => ROOTISH.has(r))))
+    if (!excluded && (roots.length ? roots : ['.']).some(holdsEnvFile))
       return `a recursive \`${name}\` from the project root also searches .env files and prints matching secret lines. Search source folders (e.g. src/), use rg without --hidden, or add ${name === 'rg' ? "-g '!.env*'" : "--exclude='.env*'"}. ${SAFE_FILE}`;
   }
   if (pf) {
@@ -737,7 +784,7 @@ function processRule(name, args) {
         if (v !== undefined) fields.push(v);
         if (/^-[a-zA-Z]*E/.test(a)) bsdEnv = true;
       } else if (/^-[a-zA-Z]*E/.test(a)) bsdEnv = true;
-      else if (k === 0 && /^[a-zA-Z]+$/.test(a)) {
+      else if (/^[a-zA-Z]+$/.test(a)) {
         // BSD-style cluster: `aux`, `eww`, `axo`. `e` shows the environment.
         if (a.includes('e')) bsdEnv = true;
         if (a.includes('o')) {
@@ -773,7 +820,9 @@ const LANGS = {
       new RegExp(`Deno\\.env\\.has\\(\\s*${Q}\\s*\\)`, 'g'),
     ],
     reference:
-      /process\s*(?:\.\s*env\b|\[\s*['"`]env['"`]\s*\])|\b(?:Deno|Bun)\s*\.\s*env\b|import\.meta\.env\b|\{[^}]*\benv\b[^}]*\}\s*=\s*process\b|\bprocess\.binding\b/,
+      /process\s*(?:\.\s*env\b|\[\s*['"`]env['"`]\s*\])|\b(?:Deno|Bun)\s*\.\s*env\b|import\.meta\.env\b|\bprocess\.binding\b/,
+    // `const { env } = process`, checked apart so a run of `{` cannot backtrack for long.
+    destructure: /\{([^{}]{0,400})\}\s*=\s*process\b/g,
   },
   py: {
     presence: [
@@ -806,7 +855,10 @@ export function codeReason(code, lang) {
     return `inline code that opens a .env file can print its values. ${SAFE_FILE}`;
   let rest = code;
   for (const re of spec.presence) rest = rest.replace(re, 'true');
-  if (spec.reference.test(rest))
+  const destructured = [
+    ...(spec.destructure ? rest.matchAll(spec.destructure) : []),
+  ].some((m) => /\benv\b/.test(m[1]));
+  if (destructured || spec.reference.test(rest))
     return `inline code that reads environment values can print secrets. Print only presence, exactly like node -e 'console.log(Boolean(process.env.KEY))' or python3 -c 'import os; print(bool(os.getenv("KEY")))'.`;
   return null;
 }
@@ -894,6 +946,20 @@ const SECRET_VAR =
   /SECRET|TOKEN|PASSW|API_?KEY|PRIVATE_?KEY|ACCESS_?KEY|_KEY$|CREDENTIAL|(^|_)DSN$|DATABASE_URL|_DB_URL$|REDIS_URL|CONNECTION_STRING|(^|_)AUTH$/i;
 const SAFE_VAR = /_(FILE|PATH|DIR|NAME|ID)$/i;
 
+// Whether a command's stdout reaches the transcript: not redirected to a file, and not piped into
+// a program other than one that just prints its input again.
+const ECHO_SINKS = new Set([...READERS, 'tee']);
+function reachesTerminal(seg) {
+  const out = seg.redirects.filter((r) => r.op === '>' || r.op === '>>');
+  if (out.some((r) => !/^\/dev\/(stdout|stderr|tty|fd\/[12])$/.test(r.target)))
+    return false;
+  if (seg.pipeTo) {
+    const next = unwrap(seg.pipeTo.words).words;
+    if (next?.length && !ECHO_SINKS.has(basename(next[0]))) return false;
+  }
+  return true;
+}
+
 function judgeSegment(seg, depth) {
   const unwrapped = unwrap(seg.words);
   if (unwrapped.skip) return null;
@@ -911,7 +977,7 @@ function judgeSegment(seg, depth) {
     processRule(name, args);
   if (reason) return reason;
 
-  if (ECHOERS.has(name)) {
+  if (ECHOERS.has(name) && reachesTerminal(seg)) {
     const secret = seg.expands.find(
       (v) => SECRET_VAR.test(v) && !SAFE_VAR.test(v),
     );
@@ -964,7 +1030,14 @@ function judge(command, depth = 0) {
 }
 
 // Returns a denial reason, or null when the command is allowed.
-export function secretDecision(command) {
+// `options.hasEnvFile(dir)` lets the caller say whether a folder holds a .env file (true or
+// false), or null when it cannot tell.
+export function secretDecision(command, options = {}) {
   if (typeof command !== 'string' || !command.trim()) return null;
-  return judge(command);
+  envProbe = options.hasEnvFile ?? null;
+  try {
+    return judge(command);
+  } finally {
+    envProbe = null;
+  }
 }

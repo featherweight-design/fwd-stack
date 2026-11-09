@@ -2,6 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -190,6 +193,21 @@ DENY.push(
   ["ruby -I lib -e 'p ENV'", /inline code/],
 );
 
+// Risk-checklist findings.
+DENY.push(
+  ['echo "$API_KEY" | cat', /API_KEY/],
+  ['echo "$API_KEY" | tee out.txt', /API_KEY/],
+  ['echo "$API_KEY" >&2', /API_KEY/],
+  ['echo "$API_KEY" > /dev/stderr', /API_KEY/],
+  ["grep -rn foo --include='.env*' .", /recursive/],
+  ['grep -rn foo /abs/repo', /recursive/],
+  ['grep -rn foo "$PWD"', /recursive/],
+  ['rg --hidden foo /abs/repo', /recursive/],
+  ['ps -o pid,comm e', /ps/],
+  ['cat .Env', /\.env file/],
+  ['cat .ENV.LOCAL', /\.env file/],
+);
+
 const ALLOW = [
   // mentions in data, not commands
   'git commit -m "env: print nothing from printenv or cat .env"',
@@ -336,6 +354,34 @@ ALLOW.push(
   'perl -I lib script.pl',
 );
 
+ALLOW.push(
+  'echo "$NPM_TOKEN" | docker login --username me --password-stdin',
+  'printf %s "$CLOUDFLARE_API_TOKEN" | wrangler secret put X',
+  'echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc',
+  'echo "$API_KEY" >> .env.local',
+  "grep -rn foo --include='*.ts' .",
+  'grep -rn foo . --include=*.tsx --include=*.ts',
+  "grep -rn foo . --exclude '.env*'",
+  "rg --hidden foo -g '*.ts'",
+);
+
+test("a recursive search follows the caller's probe of the folder", () => {
+  const yes = { hasEnvFile: () => true };
+  const no = { hasEnvFile: () => false };
+  const unsure = { hasEnvFile: () => null };
+  assert.match(secretDecision('grep -rn foo apps/', yes), /recursive/);
+  assert.equal(secretDecision('grep -rn foo .', no), null);
+  assert.equal(secretDecision('grep -rn foo /abs/repo', no), null);
+  assert.match(secretDecision('grep -rn foo .', unsure), /recursive/);
+  assert.equal(secretDecision('grep -rn foo src', unsure), null);
+});
+
+test('inline code with a long run of braces is judged quickly', () => {
+  const start = Date.now();
+  secretDecision(`node -e '${'{env '.repeat(4000)}'`);
+  assert.ok(Date.now() - start < 1000, `took ${Date.now() - start} ms`);
+});
+
 for (const [cmd, pattern] of DENY)
   test(`denies: ${JSON.stringify(cmd)}`, () => {
     const reason = secretDecision(cmd);
@@ -388,8 +434,9 @@ test('the parser splits operators, keeps quoted text whole and skips heredoc bod
 const hook = fileURLToPath(
   new URL('./secret-print-guard.mjs', import.meta.url),
 );
-const run = (payload) =>
+const run = (payload, cwd) =>
   execFileSync('node', [hook], {
+    cwd,
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     encoding: 'utf8',
   });
@@ -414,4 +461,22 @@ test('the hook stays silent on a safe command, another tool, or bad input', () =
   assert.equal(run({ tool_name: 'Read', tool_input: { command: 'env' } }), '');
   assert.equal(run({ tool_name: 'Bash', tool_input: {} }), '');
   assert.equal(run('{ not json'), '');
+});
+
+test('the hook looks for .env files under the folder a recursive grep searches', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'secret-guard-'));
+  mkdirSync(join(dir, 'apps', 'web'), { recursive: true });
+  mkdirSync(join(dir, 'src'));
+  writeFileSync(join(dir, 'apps', 'web', '.env.local'), 'KEY=x\n');
+  writeFileSync(join(dir, 'src', 'a.ts'), 'x\n');
+  const call = (command) => ({
+    tool_name: 'Bash',
+    cwd: dir,
+    tool_input: { command },
+  });
+  assert.match(run(call('grep -rn KEY apps/')), /"deny"/);
+  assert.match(run(call(`grep -rn KEY ${dir}`)), /"deny"/);
+  assert.equal(run(call('grep -rn KEY src')), '');
+  assert.equal(run(call(`grep -rn KEY ${join(dir, 'src')}`)), '');
+  assert.equal(run(call("grep -rn KEY . --exclude='.env*'")), '');
 });
