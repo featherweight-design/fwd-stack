@@ -255,7 +255,8 @@ It does five things:
 5. Points `~/.claude/CLAUDE.md` at that path.
 
 `machine/verify.sh` checks that the guards answer as they should: the Neon guard, the merge
-gate and the autonomous-run guard. Run the switch when no session is mid-review or mid-merge,
+gate, the autonomous-run guard and the secret-print guard (which denies Bash commands that would
+print a secret, such as an environment dump or `cat .env`). Run the switch when no session is mid-review or mid-merge,
 then restart sessions so they load the plugin's hooks.
 
 ### Updating

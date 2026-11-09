@@ -31,6 +31,11 @@
             "if": "Bash(*requestReviews*)",
             "timeout": 60,
             "statusMessage": "pr-review: checking the re-request is earned"
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/secret-print-guard.mjs",
+            "timeout": 10
           }
         ]
       },
