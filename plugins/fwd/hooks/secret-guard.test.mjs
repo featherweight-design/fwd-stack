@@ -152,6 +152,44 @@ const DENY = [
   ],
 ];
 
+// Review findings: each was a bypass before the fix.
+DENY.push(
+  ['timeout 5 pgrep -fl node', /pgrep/],
+  ["timeout 30 node -e 'console.log(process.env.X)'", /inline code/],
+  ['timeout -s KILL 5 cat .env', /\.env file/],
+  ['ps -U root', /ps/],
+  ['ps -u nobody', /ps/],
+  ['ps -p 123 -U root', /ps/],
+  ['watch -n1 "pgrep -fl node"', /pgrep/],
+  ["watch 'env'", /env/],
+  ["watch 'cat .env'", /\.env file/],
+  ['ls | xargs -i printenv', /printenv/],
+  ['xargs -l env', /env/],
+  ['xargs -e cat .env', /\.env file/],
+  ['grep -rn DATABASE_URL .', /recursive/],
+  ['grep -r KEY', /recursive/],
+  ['grep -Rn KEY ./', /recursive/],
+  ['rg --hidden KEY', /recursive/],
+  ['rg -uu KEY .', /recursive/],
+  ['cut -d= -f2 .env', /\.env file/],
+  ['base64 .env', /\.env file/],
+  ['jq . .env.json', /\.env file/],
+  ['fold -w 80 .env', /\.env file/],
+  ['echo $DATABASE_URL', /DATABASE_URL/],
+  ['echo "$API_KEY"', /API_KEY/],
+  ['printf \'%s\' "$GH_TOKEN"', /GH_TOKEN/],
+  ['echo "url=${DATABASE_URL}"', /DATABASE_URL/],
+  ['echo ${STRIPE_SECRET_KEY:?missing}', /STRIPE_SECRET_KEY/],
+  ['readonly', /readonly/],
+  ['readonly -p', /readonly/],
+  ['env --unset FOO', /env.*no command/],
+  ['env --chdir /tmp', /env.*no command/],
+  ['bash -o pipefail -c env', /env/],
+  ['set -o pipefail; bash -o errexit -c "printenv"', /printenv/],
+  ["perl -I lib -e 'print %ENV'", /inline code/],
+  ["ruby -I lib -e 'p ENV'", /inline code/],
+);
+
 const ALLOW = [
   // mentions in data, not commands
   'git commit -m "env: print nothing from printenv or cat .env"',
@@ -265,6 +303,39 @@ const ALLOW = [
   '',
 ];
 
+ALLOW.push(
+  'timeout 5 ps -o pid=,comm=',
+  'timeout 60 pnpm test',
+  'ps -U root -o pid=,comm=',
+  'watch -n 5 pnpm lint',
+  "watch 'git status'",
+  'ls | xargs -I{} echo {}',
+  'git ls-files | xargs grep -n KEY',
+  'grep -rn DATABASE_URL src/',
+  'grep -rn KEY apps/web/src lib',
+  "grep -rn KEY . --exclude='.env*'",
+  'grep -rln KEY .',
+  'grep -rc KEY .',
+  'rg -n KEY',
+  'rg -n KEY .',
+  "rg --hidden KEY -g '!.env*'",
+  'cut -d= -f1 package.json',
+  'jq -r .version package.json',
+  'base64 -d token.b64 > out.bin',
+  "echo '$API_KEY'",
+  'echo "\\$GH_TOKEN"',
+  'echo "${#API_KEY}"',
+  'echo "${API_KEY:+set}"',
+  '[ -n "$API_KEY" ] && echo set',
+  'echo "$HOME $PATH $PWD $NODE_ENV"',
+  'echo "$TOKEN_FILE"',
+  'echo "$GITHUB_TOKEN_PATH"',
+  'curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user',
+  'readonly FOO=1',
+  'bash -o pipefail script.sh',
+  'perl -I lib script.pl',
+);
+
 for (const [cmd, pattern] of DENY)
   test(`denies: ${JSON.stringify(cmd)}`, () => {
     const reason = secretDecision(cmd);
@@ -281,7 +352,7 @@ test('every denial names a safe alternative', () => {
   for (const [cmd] of DENY)
     assert.match(
       secretDecision(cmd),
-      /pgrep -x|ps -o pid=,comm=|Boolean\(process\.env|ls -la \.env\*/,
+      /pgrep -x|ps -o pid=,comm=|Boolean\(process\.env|ls -la \.env\*|\[ -n "\$/,
       cmd,
     );
 });

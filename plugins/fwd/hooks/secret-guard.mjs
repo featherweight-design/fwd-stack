@@ -127,6 +127,7 @@ class Parser {
         endWord();
         this.i += 2;
         this.sequence(true);
+        this.seg = seg;
         append(c === '<' ? '/dev/fd/63' : '/dev/fd/62');
       } else if (c === '<' || c === '>') {
         // A bare number right before the operator is a file descriptor, not an argument.
@@ -174,8 +175,10 @@ class Parser {
   }
 
   newSegment() {
-    const seg = { words: [], redirects: [], heredocs: [] };
+    // `expands`: names of variables the shell expands in this command (not single-quoted).
+    const seg = { words: [], redirects: [], heredocs: [], expands: [] };
     this.segments.push(seg);
+    this.seg = seg;
     return seg;
   }
 
@@ -248,8 +251,10 @@ class Parser {
       return s.slice(start, this.i);
     }
     if (s[this.i + 1] === '(') {
+      const outer = this.seg;
       this.i += 2;
       this.sequence(true);
+      this.seg = outer;
       return '$(...)';
     }
     if (s[this.i + 1] === '{') {
@@ -257,6 +262,9 @@ class Parser {
       const stop = end === -1 ? s.length : end + 1;
       const text = s.slice(this.i, stop);
       this.i = stop;
+      // `${#X}` is a length and `${X:+set}` a presence test; neither prints the value.
+      const m = /^\$\{([A-Za-z_][A-Za-z0-9_]*)(:?\+)?/.exec(text);
+      if (m && !m[2]) this.seg.expands.push(m[1]);
       return text;
     }
     if (!inDouble && s[this.i + 1] === "'") {
@@ -270,6 +278,12 @@ class Parser {
       }
       this.i++;
       return out;
+    }
+    const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(s.slice(this.i + 1))?.[0];
+    if (name) {
+      this.seg.expands.push(name);
+      this.i += 1 + name.length;
+      return '$' + name;
     }
     this.i++;
     return '$';
@@ -351,9 +365,9 @@ const WRAPPERS = {
   exec: { value: 'a' },
   nice: { value: 'n' },
   stdbuf: { value: 'ioe' },
-  watch: { value: 'nqd', long: ['interval'] },
   xargs: {
-    value: 'IinPLlEdsa',
+    // GNU -i, -l and -e take only an attached value, so they are plain flags here.
+    value: 'InPLEdsa',
     long: [
       'max-args',
       'max-procs',
@@ -381,7 +395,7 @@ const KEYWORDS = new Set([
 
 // Splits the leading wrappers off a command. Returns { words } for the command that actually
 // runs, { envDump: true } for `env` with no command, { skip: true } for a lookup like
-// `command -v`, or { nested: string } for `env -S`.
+// `command -v`, or { nested: string } for `env -S` and `watch`.
 function unwrap(words) {
   let w = words.slice();
   for (;;) {
@@ -418,7 +432,12 @@ function unwrap(words) {
           return { nested: w.slice(k + 1).join(' ') };
         if (a.startsWith('--split-string=') || /^-[a-zA-Z]*S./.test(a))
           return { nested: a.replace(/^--split-string=|^-[a-zA-Z]*S/, '') };
-        if (/^-[a-zA-Z0-9]*[uCP]$/.test(a)) k += 2;
+        if (
+          /^-[a-zA-Z0-9]*[uCP]$/.test(a) ||
+          a === '--unset' ||
+          a === '--chdir'
+        )
+          k += 2;
         else if (isOption(a) || a === '-') k++;
         else break;
       }
@@ -427,13 +446,29 @@ function unwrap(words) {
       continue;
     }
     if (name === 'timeout') {
-      const { positionals } = scanArgs(w.slice(1), 'sk', [
-        'signal',
-        'kill-after',
-      ]);
-      // positionals[0] is the duration
-      w = positionals.slice(1);
+      // Options, then the duration, then the command verbatim (its own flags included).
+      let k = 1;
+      while (k < w.length && isOption(w[k])) {
+        const a = w[k];
+        k +=
+          /^-[a-zA-Z]*[sk]$/.test(a) || a === '--signal' || a === '--kill-after'
+            ? 2
+            : 1;
+        if (a === '--') break;
+      }
+      w = w.slice(k + 1);
       continue;
+    }
+    if (name === 'watch') {
+      // watch hands its arguments to `sh -c`, so a quoted command is one word: judge it as a
+      // command line.
+      let k = 1;
+      while (k < w.length && isOption(w[k])) {
+        const a = w[k];
+        k += /^-[a-zA-Z]*[nqd]$/.test(a) || a === '--interval' ? 2 : 1;
+        if (a === '--') break;
+      }
+      return { nested: w.slice(k).join(' ') };
     }
     const spec = WRAPPERS[name];
     if (!spec) return { words: w };
@@ -506,6 +541,18 @@ const READERS = new Set([
   'paste',
   'column',
   'tr',
+  'cut',
+  'base64',
+  'basenc',
+  'fold',
+  'rev',
+  'pr',
+  'expand',
+  'unexpand',
+  'fmt',
+  'iconv',
+  'jq',
+  'yq',
 ]);
 // Readers whose first positional argument is a pattern or program, not a file.
 const PATTERN_FIRST = {
@@ -526,6 +573,8 @@ const PATTERN_FIRST = {
   mawk: { value: 'fvF', patternOpts: 'f', long: ['file'] },
   nawk: { value: 'fvF', patternOpts: 'f', long: ['file'] },
   tr: { value: '', patternOpts: '', long: [], allPatterns: true },
+  jq: { value: 'f', patternOpts: 'f', long: ['from-file'] },
+  yq: { value: '', patternOpts: '', long: [] },
 };
 const READER_VALUES = {
   head: 'nc',
@@ -533,7 +582,22 @@ const READER_VALUES = {
   xxd: 'cglos',
   od: 'AjNtw',
   sort: 'tkoST',
+  cut: 'bcdf',
+  fold: 'w',
+  iconv: 'ft',
 };
+const ROOTISH = new Set([
+  '',
+  '.',
+  './',
+  '..',
+  '../',
+  '~',
+  '~/',
+  '/',
+  '*',
+  '.*',
+]);
 
 function readerRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
@@ -572,14 +636,39 @@ function readerRule(name, args, redirects) {
   )
     return null;
   let files = positionals;
+  const afterPattern = () =>
+    flags.some(
+      (f) =>
+        (f.length === 1 && pf.patternOpts.includes(f)) || pf.long.includes(f),
+    )
+      ? positionals
+      : positionals.slice(1);
+  // A recursive search from a project root also reads the .env files in it: grep -r does not
+  // skip hidden files, and rg does with --hidden or -uu.
+  const recursive =
+    ['grep', 'egrep', 'fgrep'].includes(name) &&
+    flags.some((f) =>
+      ['r', 'R', 'recursive', 'dereference-recursive'].includes(f),
+    );
+  const hiddenRg =
+    name === 'rg' &&
+    (flags.includes('hidden') ||
+      args.some((a) => /^-[a-zA-Z]*u[a-zA-Z]*u/.test(a)) ||
+      flags.includes('.'));
+  if (recursive || hiddenRg) {
+    const excluded = values.some(
+      (v) =>
+        (v.opt === 'exclude' && v.value.startsWith('.env')) ||
+        (pf.globOpts?.includes(v.opt) && /^!.*\.env/.test(v.value)),
+    );
+    const roots = afterPattern();
+    if (!excluded && (roots.length === 0 || roots.some((r) => ROOTISH.has(r))))
+      return `a recursive \`${name}\` from the project root also searches .env files and prints matching secret lines. Search source folders (e.g. src/), use rg without --hidden, or add ${name === 'rg' ? "-g '!.env*'" : "--exclude='.env*'"}. ${SAFE_FILE}`;
+  }
   if (pf) {
     if (pf.allPatterns) files = [];
     else {
-      const hasPatternOpt = flags.some(
-        (f) =>
-          (f.length === 1 && pf.patternOpts.includes(f)) || pf.long.includes(f),
-      );
-      if (!hasPatternOpt) files = positionals.slice(1);
+      files = afterPattern();
     }
   }
   const globs = values
@@ -599,6 +688,8 @@ function dumpRule(name, args) {
   const names = args.filter((a) => !isOption(a) && a !== '--');
   if (name === 'export' && names.length === 0)
     return `\`export${args.length ? ' ' + args.join(' ') : ''}\` lists every exported variable and its value. ${SAFE_DUMP}`;
+  if (name === 'readonly' && names.length === 0)
+    return `\`readonly\` with no names prints every read-only variable and its value. ${SAFE_DUMP}`;
   if (name === 'set' && args.length === 0)
     return `a bare \`set\` prints every shell variable and its value. ${SAFE_DUMP}`;
   if ((name === 'declare' || name === 'typeset') && names.length === 0) {
@@ -629,6 +720,14 @@ function processRule(name, args) {
     let bsdEnv = false;
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
+      // Options that take a value (a user, pid, tty...): skip the value, it is not a cluster.
+      if (
+        /^-[a-zA-Z]*[UupCtGgqsN]$/.test(a) ||
+        /^--(pid|ppid|user|group|tty|sid|sort)$/.test(a)
+      ) {
+        k++;
+        continue;
+      }
       if (a.startsWith('--format') || a === '-o' || a === '--o') {
         const v = a.includes('=') ? a.slice(a.indexOf('=') + 1) : args[++k];
         if (v !== undefined) fields.push(v);
@@ -638,7 +737,7 @@ function processRule(name, args) {
         if (v !== undefined) fields.push(v);
         if (/^-[a-zA-Z]*E/.test(a)) bsdEnv = true;
       } else if (/^-[a-zA-Z]*E/.test(a)) bsdEnv = true;
-      else if (!a.startsWith('-') && /^[a-zA-Z]+$/.test(a)) {
+      else if (k === 0 && /^[a-zA-Z]+$/.test(a)) {
         // BSD-style cluster: `aux`, `eww`, `axo`. `e` shows the environment.
         if (a.includes('e')) bsdEnv = true;
         if (a.includes('o')) {
@@ -774,7 +873,9 @@ function inlineCode(name, args) {
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
       const m = /^-[a-zA-Z0-9]*?[eE](.*)$/.exec(a);
-      if (m && !a.startsWith('--')) codes.push(m[1] || (args[++k] ?? ''));
+      if (a === '-I' || a === '-r' || a === '-C')
+        k++; // a value: `-I lib`, `-r json`
+      else if (m && !a.startsWith('--')) codes.push(m[1] || (args[++k] ?? ''));
       else if (!isOption(a)) {
         fileArg = true;
         break;
@@ -786,6 +887,12 @@ function inlineCode(name, args) {
 
 // ---------------------------------------------------------------------------------------------
 // Decision
+
+// Printing a variable whose name says it holds a secret. Names only: the guard cannot see values.
+const ECHOERS = new Set(['echo', 'printf', 'print']);
+const SECRET_VAR =
+  /SECRET|TOKEN|PASSW|API_?KEY|PRIVATE_?KEY|ACCESS_?KEY|_KEY$|CREDENTIAL|(^|_)DSN$|DATABASE_URL|_DB_URL$|REDIS_URL|CONNECTION_STRING|(^|_)AUTH$/i;
+const SAFE_VAR = /_(FILE|PATH|DIR|NAME|ID)$/i;
 
 function judgeSegment(seg, depth) {
   const unwrapped = unwrap(seg.words);
@@ -804,13 +911,22 @@ function judgeSegment(seg, depth) {
     processRule(name, args);
   if (reason) return reason;
 
+  if (ECHOERS.has(name)) {
+    const secret = seg.expands.find(
+      (v) => SECRET_VAR.test(v) && !SAFE_VAR.test(v),
+    );
+    if (secret)
+      return `\`${name}\` of $${secret} prints a secret value. Print only presence: [ -n "$${secret}" ] && echo set.`;
+  }
   if (name === 'eval') return judge(args.join(' '), depth + 1);
   if (SHELLS.has(name)) {
     for (let k = 0; k < args.length; k++) {
       const a = args[k];
       if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(a))
         return k + 1 < args.length ? judge(args[k + 1], depth + 1) : null;
-      if (!isOption(a)) return null; // a script file
+      if (/^[-+][a-zA-Z]*[oO]$/.test(a))
+        k++; // `-o pipefail`
+      else if (!isOption(a) && !a.startsWith('+')) return null; // a script file
     }
     for (const body of seg.heredocs) {
       const r = judge(body, depth + 1);
