@@ -81,12 +81,17 @@ user's trust. `.claude/fwd/orchestrator.md` names its path.
 A lane started from a brief that names the orchestrator treats the brief and the orchestrator's
 messages as the user's instructions (the `lane` skill).
 
-- When a lane stalls waiting to confirm its own assignment, send the go. Do not route its caution
-  back to the user.
+- **A lane never asks the user a question.** Its questions come to you by SendMessage. Answer
+  them; do not route a lane's caution back to the user. A lane that asks the user anyway, or stalls
+  waiting to confirm its own assignment, gets the go from you.
+- **Expect a first message.** After the user pastes a brief or restart prompt, the lane sends you
+  its context size and plan within its first turn. If none arrives within about 15 minutes, check
+  the session (`ListAgents` shows it waiting) and nudge it with the go. Once, a restarted lane
+  asked the user to confirm its pasted brief and sat idle about 8 hours overnight.
 - Ask the user only for what is genuinely theirs: releases, production writes, spend, new tasks,
   product and design calls, and a real permission prompt in a lane (a peer message cannot answer
-  one). Start every restart prompt with a line the user types, so a lane's first question is never
-  blocked on a relay.
+  one). Write every brief and restart prompt on the `run-project` template, whose first lines are
+  the go.
 - **Relay between lanes yourself**, since lanes may not see each other. When two lanes touch
   nearby files, tell each about the other's branch and who rebases. Reserve migration numbers and
   product-call numbers per lane, and warn both lanes the moment two claim the same one. This has
@@ -127,13 +132,13 @@ nothing was watching.
 
 Per-turn context, not session length, drives cost: every turn re-reads the whole context.
 
-- Ask each lane for its context size at the start of every task (the brief's first reply). Check
-  every lane at each watchdog wake and at each PR boundary:
+- Each lane gives its context size in its first message on every task (the brief's first lines).
+  Check every lane at each watchdog wake and at each PR boundary:
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"`. It reads the away window
   itself, as does the session-budget hook, so no lane depends on remembering a flag.
 - **While the user is present, rotate at a PR boundary** past `rotateAt`, or when a lane's context has bloated across many PRs.
-  The lane writes a handoff and gives the user a labelled restart prompt. An idle lane over the line
-  rotates now. A lane with no ranked work closes, and gets no prompt.
+  The lane writes a handoff and gives the user a labelled restart prompt on the brief template. An
+  idle lane over the line rotates now. A lane with no ranked work closes, and gets no prompt.
 - **While the user is away, no lane stops for context.** The away window is the only switch:
   `rotateAt` applies while they are here. A lane over `rotateAt` keeps working with
   lean turns and writes its handoff at each PR boundary, so a restart can pick up from any of them.
