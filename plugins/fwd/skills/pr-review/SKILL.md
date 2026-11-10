@@ -70,6 +70,9 @@ Copilot caught and Claude's review missed (the evidence is under the change free
   `Checklist pass: <n> findings (C/H/M/L), <what was fixed or declined>`, or
   `Checklist pass: no findings.`
   The gate rejects a section that is empty or a placeholder (pending, TBD, todo, n/a, a comment).
+  A clause that ends on one ("the review is still pending") is a placeholder too, unless it is
+  prose about the code: a subordinate clause opened by that, which, while, whose, because and the
+  like, after a subject that is not the review ("cancels a frame that is still pending").
 - **UI PRs also need `## Design review`.** A PR that changes what a user sees carries the
   `design-review` skill's verify table under `## Design review`, written before the PR opens, and
   the contact sheet for the routes it touches (`feature-acceptance`). Neither is a review pass, and

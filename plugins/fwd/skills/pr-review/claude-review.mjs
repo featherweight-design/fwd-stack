@@ -15,7 +15,8 @@
 //     tba, todo, to do or wip ("Pending: cavecrew-reviewer"), or when ANY clause is only a
 //     placeholder ("Reviewer: n/a", "cavecrew-reviewer: TBD", "None yet, will run after CI",
 //     "The review is pending.", "Review still pending", "pending review"). A clause ending
-//     "is pending" is a record only when a subordinate word (that, while, ...) comes before it;
+//     "is pending" is a record only when a relative pronoun or clause conjunction (that, which,
+//     while, ...) opens it after a subject that is not about the review (describesCode below);
 //   - anything else is a record, so a finding that mentions a pending state still counts,
 //     including one whose clause ends on it ("cancels a frame that is still pending").
 
@@ -25,35 +26,45 @@ const PLACEHOLDER_OPENER = /^(?:pending|tbd|tba|todo|to do|wip)\b/;
 const PLACEHOLDER =
   '(?:pending|tbd|tba|todo|to do|wip|n a|na|none yet|not yet run|not run yet|not yet reviewed|' +
   'not reviewed yet|not yet|coming soon|placeholder)';
-// A word that opens a subordinate clause. When one sits before a clause-ending placeholder, the
-// placeholder belongs to prose about the code ("cancels a frame that is still pending", "stays
-// queued while the upload is pending"), not to the review, so the clause is a record. The test
-// fails closed: any other subject ("This review is still pending", "Claude's review is TBD")
-// keeps the clause a placeholder, and a real finding phrased without one can say it differently.
-const SUBORDINATE =
-  '(?:that|which|while|when|whenever|until|unless|if|because|since|whose|where|after|before|' +
-  'once|as|so|though|although|whether)';
 const VERB =
   '(?:is|are|was|were|is still|are still|was still|still|remains|remain|has been|have been|will be)';
-// The words a review-status subject is made of, for the forms with no verb ("review pending",
-// "pending review"). Only these reach the forms below, which the old rule never caught.
-const STATUS_WORD =
-  '(?:the|claude|code|review|reviews|reviewer|reviewers|cavecrew|checklist|pass|passes|' +
-  'finding|findings|result|results|medium|low|high|xhigh|max|ultra|copilot|off|security)';
-// A clause that is a placeholder alone, a subject that "is pending" / "still TBD" with no
-// subordinate word before it, "review pending", or "pending review".
+// The words a review-status subject is made of ("the review", "cavecrew-reviewer", "/code-review
+// medium", "checklist pass"), with the fillers that come before one ("this", "our", "Claude's").
+const STATUS_WORDS = new Set(
+  (
+    'the a an this our my its it s claude code review reviews reviewer reviewers cavecrew ' +
+    'checklist pass passes finding findings result results medium low high xhigh max ultra ' +
+    'copilot off security'
+  ).split(' '),
+);
+const STATUS_WORD = `(?:${[...STATUS_WORDS].join('|')})`;
+// A clause that is a placeholder alone, a subject that "is pending" / "still TBD", "review
+// pending", or "pending review".
 const PLACEHOLDER_CLAUSE = new RegExp(
-  `^(?:${PLACEHOLDER}` +
-    `|(?!.*\\b${SUBORDINATE}\\b)(?:.+ )?${VERB} ${PLACEHOLDER}` +
-    `|(?:${STATUS_WORD} )+${PLACEHOLDER}` +
+  `^(?:(?:.+ )?${VERB} ${PLACEHOLDER}` +
+    `|(?:${STATUS_WORD} )*${PLACEHOLDER}` +
     `|${PLACEHOLDER}(?: ${STATUS_WORD})+)$`,
 );
+// The one way out for a clause that ends "<verb> pending": prose about the code, where a relative
+// pronoun or clause conjunction opens a subordinate clause after a subject that is not about the
+// review ("the cleanup cancels a frame that is still pending", "stays queued while the upload is
+// pending"). Time and condition words (after, before, since, once, if, when, until, as, so) are
+// left out on purpose: they open status phrasing ("Review after CI is pending"). Everything else
+// fails closed and stays a placeholder; a real finding can be phrased with one of these words.
+const SUBORDINATE =
+  /^(.+?) (?:that|which|while|whose|who|because|although|though|whereas|unless|whether) /;
+const describesCode = (clause) => {
+  const m = SUBORDINATE.exec(clause);
+  return !!m && m[1].split(' ').some((w) => !STATUS_WORDS.has(w));
+};
+const isPlaceholderClause = (clause) =>
+  PLACEHOLDER_CLAUSE.test(clause) && !describesCode(clause);
 
 /** Whether a section's clauses hold a real record: some clause, no placeholder opener or clause. */
 const isRecord = (parts) =>
   parts.length > 0 &&
   !PLACEHOLDER_OPENER.test(parts[0]) &&
-  !parts.some((c) => PLACEHOLDER_CLAUSE.test(c));
+  !parts.some(isPlaceholderClause);
 
 /** The text a `## Claude review` record must hold, said where the gate refuses it. */
 export const RECORD_HINT =

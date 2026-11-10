@@ -132,6 +132,7 @@ for (const placeholder of [
   'Reason: TBD',
   'Justification is pending.',
   'The reason for the override is TBD.',
+  'Reason after review is pending.',
 ]) {
   test(`a placeholder reason ${JSON.stringify(placeholder)} does not count`, () => {
     const r = riskOverride(body(placeholder), {

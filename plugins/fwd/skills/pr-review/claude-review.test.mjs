@@ -75,6 +75,19 @@ for (const placeholder of [
   'Review has been TBD.',
   'The review will be TBD.',
   'cavecrew-reviewer: not reviewed yet',
+  'Review remains pending.',
+  // Time and condition words open status phrasing, not prose: still placeholders.
+  'Review after CI is pending.',
+  'Review since the last push is pending.',
+  'Review before merge is TBD.',
+  'Review as of this push is pending.',
+  'Review so far is pending',
+  'Code review once CI is green is pending',
+  'cavecrew-reviewer: run if needed is TBD',
+  'Review when CI is green is pending.',
+  'Review until the rebase lands is TBD.',
+  // A subordinate clause after a review-only subject is still about the review.
+  'The review that runs after CI is pending.',
 ]) {
   test(`a placeholder section is not a record: ${JSON.stringify(placeholder)}`, () => {
     assert.equal(claudeReviewState(body(placeholder)).recorded, false);
@@ -103,7 +116,11 @@ for (const record of [
   'cavecrew-reviewer: 1 Low, the retry stays queued while the upload is pending. Fixed.',
   'cavecrew-reviewer: 1 Medium, the export button showed while the label was TBD. Fixed.',
   'cavecrew-reviewer: 1 Low, an empty country field rendered as n/a. Fixed.',
+  'cavecrew-reviewer: 1 Low, the banner stays up although the sync is not yet. Fixed.',
   'cavecrew-reviewer: 1 Low, the sweep skipped items that are still to do. Fixed.',
+  'cavecrew-reviewer: 1 Medium, the poller drops a job which is still pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the row hides its owner whose invite is pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the toast fires because the save is pending. Fixed.',
 ]) {
   test(`a real record counts: ${JSON.stringify(record)}`, () => {
     assert.equal(claudeReviewState(body(record)).recorded, true);
@@ -236,6 +253,7 @@ for (const placeholder of [
   'Checklist pass: not yet run',
   'Checklist pass: still pending',
   'Checklist pass: pending review',
+  'Checklist pass: run after CI is pending',
 ]) {
   test(`a placeholder checklist line is not a record: ${JSON.stringify(placeholder)}`, () => {
     const door = copilotOffDoor(
