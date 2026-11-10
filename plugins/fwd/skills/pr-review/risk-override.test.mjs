@@ -130,6 +130,8 @@ for (const placeholder of [
   'n/a',
   '<!-- why -->',
   'Reason: TBD',
+  'Justification is pending.',
+  'The reason for the override is TBD.',
 ]) {
   test(`a placeholder reason ${JSON.stringify(placeholder)} does not count`, () => {
     const r = riskOverride(body(placeholder), {
@@ -141,6 +143,14 @@ for (const placeholder of [
     assert.match(r.ignored, /placeholder/);
   });
 }
+
+test('a reason whose prose ends on a placeholder word counts', () => {
+  const r = riskOverride(
+    body('Display only: it shows a badge while the order is pending.'),
+    { riskyPaths: displayOnly, destructive: false },
+  );
+  assert.equal(r.applied, true);
+});
 
 test('the reason stops at the next heading', () => {
   const r = riskOverride(

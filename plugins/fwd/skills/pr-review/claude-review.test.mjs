@@ -62,6 +62,19 @@ for (const placeholder of [
   'The checklist pass is TBD.',
   'Findings: TBD',
   'Results still to do.',
+  // Any subject without a subordinate word keeps it a placeholder: the test fails closed.
+  'This review is still pending.',
+  'A review is pending.',
+  'Our review is pending.',
+  'Review of this PR is pending.',
+  "Claude's review is pending.",
+  '/code-review ultra is pending',
+  'The /code-review run is pending',
+  'Security review by cavecrew is pending',
+  'Review was not yet run.',
+  'Review has been TBD.',
+  'The review will be TBD.',
+  'cavecrew-reviewer: not reviewed yet',
 ]) {
   test(`a placeholder section is not a record: ${JSON.stringify(placeholder)}`, () => {
     assert.equal(claudeReviewState(body(placeholder)).recorded, false);
