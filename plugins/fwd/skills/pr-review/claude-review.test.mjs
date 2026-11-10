@@ -51,6 +51,17 @@ for (const placeholder of [
   'Reviewer: n/a',
   'The review is pending.',
   'None yet, will run after CI.',
+  // Review-status phrasing around the placeholder is still a placeholder.
+  'Review still pending.',
+  'Review: pending',
+  'cavecrew-reviewer: pending review',
+  'cavecrew-reviewer: review pending',
+  '/code-review medium is still pending',
+  'Claude review: not yet run',
+  'cavecrew-reviewer: not yet reviewed',
+  'The checklist pass is TBD.',
+  'Findings: TBD',
+  'Results still to do.',
 ]) {
   test(`a placeholder section is not a record: ${JSON.stringify(placeholder)}`, () => {
     assert.equal(claudeReviewState(body(placeholder)).recorded, false);
@@ -74,6 +85,12 @@ for (const record of [
   'No findings.',
   // A finding about a pending state is a record, not a placeholder.
   'cavecrew-reviewer: 1 Medium, the pending badge never clears. Fixed.',
+  // Prose whose clause ENDS on a placeholder word describes the code, not the review.
+  '/code-review medium: 1 Medium, the cleanup cancels a frame that is still pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the retry stays queued while the upload is pending. Fixed.',
+  'cavecrew-reviewer: 1 Medium, the export button showed while the label was TBD. Fixed.',
+  'cavecrew-reviewer: 1 Low, an empty country field rendered as n/a. Fixed.',
+  'cavecrew-reviewer: 1 Low, the sweep skipped items that are still to do. Fixed.',
 ]) {
   test(`a real record counts: ${JSON.stringify(record)}`, () => {
     assert.equal(claudeReviewState(body(record)).recorded, true);
@@ -161,6 +178,7 @@ for (const line of [
   '- **Checklist pass:** 1 Low, fixed.',
   '**Checklist pass**: NO FINDINGS',
   '> Checklist pass: 3 findings (0/1/1/1), all fixed.',
+  'Checklist pass: 1 Low, the cleanup cancels a frame that is still pending; fixed.',
 ]) {
   test(`a decorated checklist line counts: ${JSON.stringify(line)}`, () => {
     assert.equal(
@@ -203,6 +221,8 @@ for (const placeholder of [
   'Checklist pass:',
   'Checklist pass: <!-- after CI -->',
   'Checklist pass: not yet run',
+  'Checklist pass: still pending',
+  'Checklist pass: pending review',
 ]) {
   test(`a placeholder checklist line is not a record: ${JSON.stringify(placeholder)}`, () => {
     const door = copilotOffDoor(

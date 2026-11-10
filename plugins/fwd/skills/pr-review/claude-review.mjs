@@ -14,17 +14,28 @@
 //   - it is NOT a record when no clause is left, when the first clause opens with pending, tbd,
 //     tba, todo, to do or wip ("Pending: cavecrew-reviewer"), or when ANY clause is only a
 //     placeholder ("Reviewer: n/a", "cavecrew-reviewer: TBD", "None yet, will run after CI",
-//     "The review is pending.");
-//   - anything else is a record, so a finding that mentions a pending state still counts.
+//     "The review is pending.", "Review still pending", "pending review"). Words around the
+//     placeholder count only when they are review-status words (STATUS_WORD below);
+//   - anything else is a record, so a finding that mentions a pending state still counts,
+//     including one whose clause ends on it ("cancels a frame that is still pending").
 
 const HEADING = /^##[ \t]+Claude review\b([^\n]*)$/im;
 
 const PLACEHOLDER_OPENER = /^(?:pending|tbd|tba|todo|to do|wip)\b/;
 const PLACEHOLDER =
   '(?:pending|tbd|tba|todo|to do|wip|n a|na|none yet|not yet run|not run yet|not yet|coming soon|placeholder)';
-// A clause that is a placeholder alone, or says something "is pending" / "still TBD".
+// The words a review-status subject is made of ("the review", "cavecrew-reviewer", "/code-review
+// medium", "checklist pass"). A clause is a placeholder only when every word around the
+// placeholder comes from this list, so prose that ends on one ("cancels a frame that is still
+// pending") is a record: a subject of any other words is describing the code, not the review.
+const STATUS_WORD =
+  '(?:the|claude|code|review|reviews|reviewer|reviewers|reviewed|record|pass|passes|checklist|' +
+  'section|cavecrew|result|results|finding|findings|status|medium|low|high|xhigh|max|both|' +
+  'risk|reason|copilot)';
+// A clause that is a placeholder alone, or a review-status subject saying it "is pending",
+// "still TBD", "review pending", "pending review" or "not yet reviewed".
 const PLACEHOLDER_CLAUSE = new RegExp(
-  `^(?:(?:.+ )?(?:is|are|still|is still) )?${PLACEHOLDER}$`,
+  `^(?:${STATUS_WORD} )*(?:(?:is|are|still|is still) )?${PLACEHOLDER}(?: ${STATUS_WORD})*$`,
 );
 
 /** The text a `## Claude review` record must hold, said where the gate refuses it. */
