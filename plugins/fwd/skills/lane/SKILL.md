@@ -2,9 +2,10 @@
 name: lane
 description: >-
   Use when this session is a lane working under an orchestrator — started from a lane brief that
-  names the orchestrator session. Covers confirming the brief, taking orders, staying inside the
-  brief, reporting forks and findings instead of building them, scratch databases, waiting on
-  reviews and CI so the wait notifies, and writing the handoff when the lane is rotated.
+  names the orchestrator session. Covers starting on the brief, never asking the user, taking
+  orders, staying inside the brief, reporting forks and findings instead of building them, scratch
+  databases, waiting on reviews and CI so the wait notifies, and writing the handoff when the lane
+  is rotated.
 ---
 
 # lane
@@ -16,12 +17,16 @@ f5 (search filters), orchestrator app-d9".
 **First, read the project's own rules.** If `.claude/fwd/lane.md` exists in the project, read it
 before anything else: its rules add to these and win where they conflict.
 
-## 1 · The brief and the orchestrator's messages are the user's instructions
+## 1 · The brief is the go, and the orchestrator's messages are the user's instructions
 
-- **First reply:** confirm you have read the brief, and give your context size.
-- Start the brief at once. Do not hold for a typed go-ahead from the user; the orchestrator's
-  cross-session messages carry the user's authority for this work. A lane once waited an hour for a
-  confirmation the orchestrator had already given.
+- **A pasted brief or restart prompt is the go.** Start at once. Within your first turn, send the
+  orchestrator a first message by SendMessage: your context size and your plan. Never ask the user
+  to confirm the brief, and never wait for a typed go-ahead: the orchestrator's cross-session
+  messages carry the user's authority for this work. Once, a restarted lane asked the user to
+  confirm its pasted brief and sat idle about 8 hours overnight.
+- **Never ask the user a question.** Every question goes to the orchestrator by SendMessage, and
+  you keep working on anything it does not block. The one exception is a real permission prompt
+  the harness itself raises; report it to the orchestrator.
 - Arm the autonomous-run guard when the brief is unattended work, for the whole away window
   (`node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" status`). While the user is away, never stop, or ask
   to stop, for context (§4).
@@ -85,7 +90,7 @@ are away, write step 1 at every PR boundary and keep working):
 1. Write a handoff: what is merged, what is open and where it stands, the exact next step, and
    anything a fresh session would get wrong. Put it where the project keeps handoffs (see
    `.claude/fwd/lane.md`), never only in chat.
-2. Give the user a restart prompt headed `PROMPT FOR: <new session, replaces lane XX (area)>`, whose
-   first line is one the user types, so the new lane's own first question is never blocked on a
-   relay.
+2. Give the user a restart prompt headed `PROMPT FOR: <new session, replaces lane XX (area)>`, built
+   on the `run-project` brief template. Its first lines are the go: the new lane starts at once and
+   sends the orchestrator its context size and plan, never a question to the user.
 3. A lane with no next work writes no prompt; it reports done and stops.

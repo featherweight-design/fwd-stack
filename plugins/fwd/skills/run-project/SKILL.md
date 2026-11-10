@@ -69,6 +69,9 @@ product call.
 
 ```text
 PROMPT FOR: <new session | lane XX>, lane <id> (<area>), orchestrator <orchestrator session name>
+This is your go: start now. First message to <orchestrator session name>, within your first turn:
+  your context size and your plan. Never ask the user anything; send every question to
+  <orchestrator session name> and keep working on what it does not block.
 
 WHAT AND WHY: <the task, in the user's words where possible>
 EVIDENCE: <file:line, PR, issue, or the measurement that started it>
@@ -84,8 +87,11 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
 STOPPING POINT: <"merged and production health OK" | "plan sent to me" | "report before building">
-FIRST REPLY: confirm you have read this, and give your context size.
 ```
+
+A restart prompt uses the same template: the handoff's path goes in EVIDENCE and its exact next
+step in WHAT AND WHY. Its first lines are always the go, so a restarted lane never waits on the
+user.
 
 ## 4 · Subagent dispatch
 
