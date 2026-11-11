@@ -46,6 +46,8 @@ before anything else: its rules add to these and win where they conflict.
   continuing. Your own context size is never that reason (§4).
 - Approval of the task covers decisions inside it, never new tasks.
 
+- **Typecheck and lint only, never tests or a build.** Never run a test suite or a production
+  build locally; push and let CI run them (`pr-review` §5). The local-test guard hook denies them.
 - **Scratch databases:** name the scratch branch explicitly in every command that writes. Never
   let a helper pick its target up from `.env`: one once wrote to the shared development database
   that way. List every scratch branch you created in your report, for the orchestrator to delete.

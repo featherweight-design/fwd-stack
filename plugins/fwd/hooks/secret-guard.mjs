@@ -410,7 +410,7 @@ const KEYWORDS = new Set([
 // Splits the leading wrappers off a command. Returns { words } for the command that actually
 // runs, { envDump: true } for `env` with no command, { skip: true } for a lookup like
 // `command -v`, or { nested: string } for `env -S` and `watch`.
-function unwrap(words) {
+export function unwrap(words) {
   let w = words.slice();
   for (;;) {
     while (w.length && (isAssignment(w[0]) || KEYWORDS.has(w[0]))) {
