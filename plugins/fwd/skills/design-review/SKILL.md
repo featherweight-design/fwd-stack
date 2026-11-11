@@ -17,6 +17,58 @@ alongside it, and run this skill **against the whole brief at feature close**, n
 only per PR: run per PR it reads a slice and confirms the slice, which is how five
 green PRs shipped three gaps at their seams.
 
+## Before any UI PR opens: the `## Design review` table
+
+**Every UI PR runs this skill's verify pass before `gh pr create`, and records it in the PR body
+under `## Design review`.** A UI PR is any PR that changes what a user sees: components, styles,
+layout, a route's rendering. The orchestrator does not merge a UI PR without the section, however
+green its review and CI.
+
+Before that, two things must already hold:
+
+- **The handoff has a READINESS verdict** (the `readiness-review` skill). No UI work starts on a
+  handoff without one, whatever its age.
+- **`design/` is reference, never source.** Never import from the handoff folder, and never copy
+  its assets into `public/` or any shipped folder. Rebuild what it draws in the app's own
+  components and tokens; an asset the app ships goes through the project's own asset pipeline.
+
+The section is a table with one row per property this PR builds: the rows come from the property
+table that Agent 1 wrote, and Agent 2 (plus Agent 3, where it ran) verified each. Every row is
+checked; none is sampled.
+
+```markdown
+## Design review
+
+Handoff: `design/<handoff>/` (READINESS 🟡 Yellow) · property table: `<path>`
+
+| Element     | Property   | Phone: design → built            | Desktop: design → built | Result                                |
+| ----------- | ---------- | -------------------------------- | ----------------------- | ------------------------------------- |
+| Toolbar     | height     | 48px → 48px                      | 56px → 56px             | ✅                                    |
+| Toolbar     | background | var(--surface) → var(--surface)  | same                    | ✅                                    |
+| Empty state | layout     | not drawn → the list empty state | same                    | 🔸 nearest pattern: `/projects` empty |
+
+Verdict: 3 rows, 2 match, 1 resolved from the nearest drawn pattern, 0 gaps. Contact sheet: <link>.
+```
+
+Results: ✅ match · ❌ mismatch (fix it before opening) · 🔸 resolved from the nearest drawn
+pattern (name the pattern) · ⛔ gap (that piece stopped, ruling pending). A PR opens with no ❌
+rows, and with ⛔ rows only for pieces it does not build.
+
+### Ambiguity is resolved; only a real gap goes back to Design
+
+Handoffs are expected to be comprehensive. **A small ambiguity is not a gap.** When the boards
+leave a detail open (an unlabelled spacing, a state drawn on one surface and implied on another, a
+hover the handoff's other controls already show), resolve it from the nearest drawn pattern: the
+same handoff first, then the shipped component it most resembles. Record it as a 🔸 row naming the
+pattern, and keep going.
+
+**A gap is something the boards truly do not cover:** a screen, a state or a behaviour with no
+drawn pattern to follow, or two drawn patterns that contradict each other. Then **that piece
+stops**. Report it to the orchestrator (or the user, when there is none) with what is missing and a
+recommendation; it goes back to Design only on the user's ruling. The rest of the PR's pieces
+continue. Never invent a design for a real gap, and never send Design a mismatch the drawn patterns
+already settle. Wording is never a Design gap: it goes to `/copy-review` (below).
+
 ## Overview
 
 Converts open-ended design gap hunting into a deterministic lookup. The skill runs in three agent calls in the normal case, and four at most (one bounded Agent 3 re-run) — never ten. It separates two cognitively distinct tasks (enumerate vs. verify) that, when combined, cause attention drift and missed properties.

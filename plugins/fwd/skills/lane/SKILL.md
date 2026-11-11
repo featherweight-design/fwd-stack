@@ -48,6 +48,20 @@ before anything else: its rules add to these and win where they conflict.
 
 - **Typecheck and lint only, never tests or a build.** Never run a test suite or a production
   build locally; push and let CI run them (`pr-review` §5). The local-test guard hook denies them.
+- **UI work follows the design pipeline.** Start UI only on a handoff with a READINESS verdict
+  (`readiness-review`). Treat `design/` as reference: never import from it or copy its assets into
+  `public/`. Before `gh pr create`, run `design-review`'s verify pass and put its table in the PR
+  body under `## Design review`, and run `feature-acceptance`'s contact sheet (phone and desktop,
+  every route the PR touches) and its checks. If the project has no
+  `.claude/fwd/feature-acceptance.md`, stop and report that to the orchestrator rather than
+  skipping the checks.
+- **Ambiguity is yours to resolve; a real gap stops the piece.** Handoffs are expected to be
+  comprehensive. A detail the boards leave open is resolved from the nearest drawn pattern and
+  recorded as a 🔸 row in the `## Design review` table. A screen, state or behaviour the boards
+  truly do not cover, with no drawn pattern to follow, is a gap: stop that piece, report it to the
+  orchestrator with a recommendation, and keep building the rest. It goes to Design only on the
+  user's ruling.
+
 - **Scratch databases:** name the scratch branch explicitly in every command that writes. Never
   let a helper pick its target up from `.env`: one once wrote to the shared development database
   that way. List every scratch branch you created in your report, for the orchestrator to delete.

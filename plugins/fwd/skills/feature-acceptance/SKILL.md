@@ -5,9 +5,20 @@ description: Use when a UI feature is finished — before calling any PR done an
 
 # feature-acceptance
 
-**First, read the project's own rules.** If `.claude/fwd/feature-acceptance.md` exists in the project, read
-it before anything else: it names the project's own tools and conventions for this skill, and
-its rules add to these and win where they conflict.
+**First, read the project's own rules, and stop if they are missing.** Read
+`.claude/fwd/feature-acceptance.md` in the project before anything else: it names the project's
+widths, inventory folder, sign-in and conventions, and its rules add to these and win where they
+conflict. **If that file does not exist, stop.** Do not skip the artifacts, and do not call the
+PR done. Tell the orchestrator (or the user, when there is none) in one message:
+"feature-acceptance is not set up in this project: no `.claude/fwd/feature-acceptance.md`. The UI
+work is unaccepted until it is." A project without the file used to get no checks at all,
+silently, and its UI shipped with gaps the checks below exist to catch. Setting the project up is
+its own small task (§ The project file); it needs the user's yes like any other.
+
+The file either points at the kit's tools below, and then `.claude/fwd.json` carries the
+`featureAcceptance` block they read (they refuse to run without it), or names the project's own
+tools for the same four artifacts. Either way, an artifact the file does not provide for is a stop
+and a report, never a skip.
 
 `pr-review` governs the review loop — whether the code was read. This governs
 whether the feature is **there**. They are different questions and they fail
@@ -82,9 +93,22 @@ by the same agent that wrote the code, so it asserts what that agent believed �
 on the motivating feature, one PR's probe absorbed several rounds of review
 findings and still measured the wrong route. A contact sheet has no beliefs; it just shows the page.
 
-> **The project's contact sheet** is named in `.claude/fwd/feature-acceptance.md`: typically a
-> Playwright script driven by a per-feature route inventory, where a row's steps reach a surface
-> several clicks deep. Adding a feature means adding an inventory, never another script.
+**The kit's contact sheet** walks one inventory (§ The inventory) at every width the project
+names and writes `sheet.png` plus one PNG per cell:
+
+```bash
+node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> [--base <url>]
+```
+
+It photographs a **deployed** build (staging or a preview: `--base`, else `CONTACT_SHEET_BASE`,
+else `featureAcceptance.baseUrl`) and refuses a local address: a local build is not what users get.
+It exits 1 when any cell did not reach its surface or nothing was photographed, and 2 when it
+cannot run (no project setup, a malformed inventory, Playwright missing). Adding a feature means
+adding an inventory, never another script.
+
+**Phone and desktop parity is proven here, not asserted.** Every row runs at every width unless
+the row says it exists at one width only. A PR that ships a surface on one width and not the other
+shows it on the sheet; "parity ships in the same PR" is checked by looking at both columns.
 
 ### 3 · Cross-route sameness, checked two ways
 
@@ -105,9 +129,31 @@ requiring every route to import it directly reports correct composition as
 failure. On the motivating feature that produced false reports on several routes. Ask
 what a route renders as-is, and check that.
 
-> **The project's sameness check** is named in `.claude/fwd/feature-acceptance.md`: typically a
-> script reading a `shares` block on the same inventory. Absent that block it does nothing, which
-> is the right state while the shared component is still being identified.
+**The kit's import-equality check** reads the `shares` block on the same inventory:
+
+```bash
+node ~/.claude/fwd/skills/feature-acceptance/check-shared.mjs <inventory.json>
+```
+
+Each row's `view` must import the named `binding` as a value from the named `module` and reference
+it. A route's own wrapper, a constant or type taken from the module, a default or namespace import,
+or an unused import all fail. Absent a `shares` block it does nothing, which is the right state
+while the shared component is still being identified. Marker presence is the contact sheet's
+`wait` on the shared component's marker at every width.
+
+### The token guard
+
+Run on every UI PR, alongside the contact sheet:
+
+```bash
+node ~/.claude/fwd/skills/feature-acceptance/check-tokens.mjs [--strict-hex]
+```
+
+It fails on any `var(--x)` no theme file declares (an unset custom property draws nothing and
+reports nothing, so a typo'd token ships as a void), and reports hard-coded hex colours in the
+component folders the project names. A hex colour is drift from the design system; it fails the
+run when `tokens.hexFails` is set or with `--strict-hex`. A deliberate one (a brand mark) carries
+`fwd-allow-hex` on its line.
 
 ### 4 · The close-out walk
 
@@ -117,6 +163,90 @@ produced three gaps. Load every row of the inventory in a real browser, compare
 against the brief, and record what you saw.
 
 This is when the `design-review` skill runs against the whole brief.
+
+## The project file
+
+A project on the kit's tools provides two things, and the tools refuse to run without them.
+
+**`.claude/fwd/feature-acceptance.md`** (prose, for agents): the phone and desktop widths in
+words, where inventories live, how the sign-in account is provisioned (names of the environment
+variables, never values), which component folders the token guard covers, anything about the app
+shell a step must avoid, and where the contact sheet goes in a PR.
+
+**`featureAcceptance` in `.claude/fwd.json`** (read by the tools):
+
+| Field             | Required by                 | Meaning                                                                                                                             |
+| ----------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`         | contact sheet               | The deployed https origin to photograph (staging). `--base` or `CONTACT_SHEET_BASE` override it.                                    |
+| `widths`          | contact sheet               | `[{ "label": "phone", "width": 390, "height": 844 }, { "label": "desktop", "width": 1300, "height": 900 }]`; `touch: true` optional |
+| `signIn`          | contact sheet               | Project-relative module exporting `signIn(page, { baseUrl })`; throws on failure. Unneeded if every inventory is `signedOut`.       |
+| `pageScope`       | contact sheet               | Selector page content lives in (default `main`), so a step never matches the app shell. `""` for none.                              |
+| `inventories`     | agents                      | Folder of inventory JSON files, e.g. `docs/superpowers/inventories`.                                                                |
+| `out`             | contact sheet               | Output folder (default `contact-sheets`, gitignore it). One subfolder per inventory.                                                |
+| `packageDir`      | contact sheet, check-shared | Folder whose `node_modules` has Playwright and TypeScript (a monorepo's app). Default: the root.                                    |
+| `aliases`         | check-shared                | Import aliases to project-relative folders, e.g. `{ "@/": "src/" }`.                                                                |
+| `tokens.declare`  | check-tokens                | Globs of theme files; every `--x:` there is declared for the whole app.                                                             |
+| `tokens.read`     | check-tokens                | Globs whose `var(--x)` reads must resolve (test files are skipped).                                                                 |
+| `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                |
+| `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                               |
+
+The project installs Playwright (and its Chromium) and TypeScript itself; the kit adds no
+dependency. The sign-in module reads its credentials from the environment and never prints them.
+
+## The inventory
+
+One JSON file per feature, in the project's inventory folder. The contact sheet and check-shared
+both validate it, and refuse it rather than run part of it.
+
+```json
+{
+  "feature": "Projects toolbar",
+  "signedOut": false,
+  "shares": { "binding": "Toolbar", "module": "src/components/ui/toolbar" },
+  "rows": [
+    {
+      "id": "projects",
+      "label": "/projects, toolbar at rest",
+      "view": "src/app/projects/view.tsx",
+      "steps": [
+        { "goto": "/projects", "wait": "[data-toolbar]", "settle": 500 }
+      ]
+    },
+    {
+      "id": "projects-filter",
+      "label": "/projects, filter sheet open",
+      "view": "src/app/projects/view.tsx",
+      "widths": ["phone"],
+      "steps": [
+        { "goto": "/projects", "wait": "[data-toolbar]" },
+        { "clickRole": "button", "name": "^Filter" },
+        { "waitDialog": "Filters" }
+      ]
+    }
+  ]
+}
+```
+
+- **Top level:** `feature` (required, the sheet's title), `rows` (required, non-empty), and
+  optionally `note`, `out`, `signedOut` (photograph with no sign-in), `fullPage`, `widths` (replaces
+  the project's for this inventory), `cookies` (`[{ "name", "value" }]`), `shares`.
+- **A row:** `id` (lowercase, dashes; names the file), `label` (what the cell shows), `steps`
+  (non-empty), and optionally `view`, `binding`, `widths` (the labels it exists at; the others are
+  skipped, not failed), `fullPage`.
+- **Steps** are objects of verbs, run in this order within a step: `goto` (a path), `store`
+  (localStorage), `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `waitDialog` (a
+  dialog's accessible name), `hover`, `back`, `offline`, `pressKey`, `settle` (ms), `scrollTo`,
+  `scroll` (pixels or `"bottom"`). Put verbs that must run in another order in separate steps.
+  Selectors are scoped to `pageScope`; `waitDialog` is not, since dialogs portal outside it. An
+  unknown verb is an error, never a step that silently does nothing.
+- `${VAR}` in `goto`, `text`, `name` and cookie values comes from the environment, so no inventory
+  commits one account's ids. A missing variable fails the cell.
+- **`shares`** is `{ "binding", "module" }` or an array of them. With it, every row names its
+  `view`; with an array, every row also names its `binding`. `module` names the component used
+  as-is, and `view` the file that imports it, which may be a route-level wrapper.
+- Give every `goto` a `wait` naming something the finished page has: `settle` is a delay, not a
+  readiness check, and a sheet of loading skeletons reads as coverage.
+- There is no optional step. A step that finds nothing fails the cell, which is the point of it.
 
 ## Do not add pixel-diff visual regression
 
@@ -137,7 +267,8 @@ to maintain.
 
 - **Before implementation:** the inventory goes in the plan.
 - **Per PR:** the contact sheet for the routes that PR touches, in the PR body.
-  Marker presence and import equality pass.
+  Marker presence, import equality and the token guard pass. The `design-review`
+  verify table is in the PR body under `## Design review`.
 - **At feature close:** full inventory walked, full contact sheet, `design-review`
   against the brief, and every row ticked.
 - **Not done** until the last of those is true, whatever the PRs' review state.
@@ -161,3 +292,5 @@ have caught all three gaps before the user did.
 | "Desktop looks right"                   | Both viewports, every route, or the row isn't ticked.         |
 | "I'll walk it after the last PR merges" | That walk is part of the feature. Unwalked is unfinished.     |
 | "We should add screenshot baselines"    | They fire on change, not absence. See above.                  |
+| "This project has no acceptance file"   | Stop and report it. Missing setup is not a pass.              |
+| "I'll run the sheet against localhost"  | Users get the deployed build. Point it at staging.            |

@@ -47,10 +47,25 @@ board locations, where the ruling log lives). Settings live under `orchestrator`
 - Never add a new feature switch, a Design item, or spend without the user's yes. Once, a lane
   built a whole feature switch for an improvement that did not need one.
 - **Route UI through Design where the project has it.** `.claude/fwd/orchestrator.md` says which
-  UI changes go to Design (often all of them before launch, small ones included). Do not decide
-  those yourself. Once, a close button placed on an engineer's ruling shipped, and the user
-  disliked it. A Design prompt cites only files on GitHub (a pushed branch is enough), never local
-  notes or uploads.
+  UI changes go to Design (often most of them, small ones included: placement, a new control, a
+  sheet, a loading or empty state). Engineering alone takes logic, data, copy (through
+  `copy-review`) and fixes that restore the drawn design. Do not decide the rest yourself. Once, a
+  close button placed on an engineer's ruling shipped, and the user disliked it. A Design prompt
+  cites only files on GitHub (a pushed branch is enough), never local notes or uploads.
+- **UI work starts only on a handoff with a READINESS verdict** (`readiness-review`), whatever the
+  handoff's age. Commission the audit as a subagent when a handoff lands.
+- **A gap the boards do not draw stops that piece until the user rules.** Handoffs are expected to
+  be comprehensive, so the bar is high: a screen, state or behaviour with no drawn pattern to
+  follow, or two drawn patterns that conflict. A lane resolves a small ambiguity itself from the
+  nearest drawn pattern and records it in the PR's `## Design review` table; do not send those to
+  Design. For a real gap, ask the user, offering "send to Design" first; the lane keeps working on
+  everything else. Never add a Design item without the user's yes.
+- **Merge a UI PR only with its `## Design review` table and contact sheet** (`design-review`,
+  `feature-acceptance`): the table has no ❌ rows, and the sheet shows every route at phone and
+  desktop. A lane that reports `feature-acceptance` is not set up in the project gets that setup
+  raised with the user as a task; its UI PRs are unaccepted until it lands.
+- **`design/` is reference only.** Nothing imports from it and nothing copies its assets into
+  `public/`. A diff that does either is sent back.
 - **Copy rules win.** A `copy-review` breach blocks the merge, and a brief never overrides copy
   rules. Once, a lane was told to reuse a six-word label in a three-word slot.
 - Never silently trim what the user asked for. Fulfil it, or negotiate it out loud. When the user

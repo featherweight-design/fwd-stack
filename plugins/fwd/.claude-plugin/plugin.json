@@ -1,7 +1,7 @@
 {
   "name": "fwd",
   "displayName": "Featherweight",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Shared review, delivery and orchestration skills and their guard hooks.",
   "author": { "name": "HartiganHM", "url": "https://github.com/HartiganHM" },
   "repository": "https://github.com/featherweight-design/fwd-stack",

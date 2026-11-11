@@ -70,6 +70,12 @@ Copilot caught and Claude's review missed (the evidence is under the change free
   `Checklist pass: <n> findings (C/H/M/L), <what was fixed or declined>`, or
   `Checklist pass: no findings.`
   The gate rejects a section that is empty or a placeholder (pending, TBD, todo, n/a, a comment).
+- **UI PRs also need `## Design review`.** A PR that changes what a user sees carries the
+  `design-review` skill's verify table under `## Design review`, written before the PR opens, and
+  the contact sheet for the routes it touches (`feature-acceptance`). Neither is a review pass, and
+  a review pass replaces neither: a review reads the diff, and these compare it to the design. The
+  orchestrator does not merge a UI PR without them. The gate does not check them; the orchestrator
+  does.
 - **A/B v2 line (risky PRs).** Add one line to `## Claude review`:
   `A/B v2: Copilot off, Claude <n> (C/H/M/L), checklist-only real <n> [checks], code-review-only real <n>`.
   A finding is "real" if you fixed it. The bracketed check numbers (1 to 10) show which checks
@@ -694,6 +700,8 @@ probe.
 
 ## 8 · The merge bar
 
+- **A UI PR first needs its `## Design review` table and contact sheet** (the ruling section
+  above). Without them it does not meet the bar, whatever its rounds.
 - No unresolved Critical/High/Medium findings, **and 2 CONSECUTIVE successful
   rounds** — a trailing streak, not a count. Four clean rounds out of six does
   not meet it if a finding landed between them. This is deliberate: a finding

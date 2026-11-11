@@ -84,7 +84,9 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   list every scratch database branch you create; name scratch files after their PR or task
   (pr<N>-body.md), never a generic name, and read a body file back before --body-file;
   typecheck and lint only, never tests or a production build locally, CI runs them
-  (pr-review §5); full pr-review on every PR; copy through copy-review.
+  (pr-review §5); full pr-review on every PR; copy through copy-review; UI only on a handoff
+  with a READINESS verdict, a `## Design review` table and a contact sheet in every UI PR,
+  design/ as reference only.
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
 STOPPING POINT: <"merged and production health OK" | "plan sent to me" | "report before building">
