@@ -52,7 +52,8 @@ before anything else: its rules add to these and win where they conflict.
   (`readiness-review`). Treat `design/` as reference: never import from it or copy its assets into
   `public/`. Before `gh pr create`, run `design-review`'s verify pass and put its table in the PR
   body under `## Design review`, and run `feature-acceptance`'s contact sheet (phone and desktop,
-  every route the PR touches) and its checks. If the project has no
+  every route the PR touches) against your local dev server (`pnpm dev`, never a build), and its
+  checks. Staging is for audits after merge. If the project has no
   `.claude/fwd/feature-acceptance.md`, stop and report that to the orchestrator rather than
   skipping the checks.
 - **Ambiguity is yours to resolve; a real gap stops the piece.** Handoffs are expected to be
