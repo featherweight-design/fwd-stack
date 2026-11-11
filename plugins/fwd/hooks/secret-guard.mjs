@@ -318,9 +318,9 @@ export function parseCommands(command) {
 // ---------------------------------------------------------------------------------------------
 // Shared helpers
 
-const basename = (w) => w.slice(w.lastIndexOf('/') + 1);
+export const basename = (w) => w.slice(w.lastIndexOf('/') + 1);
 const isAssignment = (w) => /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/.test(w);
-const isOption = (w) => w.length > 1 && w.startsWith('-');
+export const isOption = (w) => w.length > 1 && w.startsWith('-');
 
 const TEMPLATE_SUFFIX = /\.(example|sample|template|dist)$/;
 // A .env-style file: basename starts with `.env` (`.env`, `.env.local`, `.envrc`, `.env*`).
@@ -520,7 +520,7 @@ export function unwrap(words) {
 // ---------------------------------------------------------------------------------------------
 // Rules
 
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
+export const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
 
 // Text tools that print a file's contents (or most of it).
 const READERS = new Set([

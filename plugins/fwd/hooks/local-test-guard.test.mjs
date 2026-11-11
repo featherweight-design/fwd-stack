@@ -33,6 +33,21 @@ const DENY = [
   ['bun test', /bun test/],
   ['pytest -q', /pytest/],
   ['python3 -m pytest tests', /pytest/],
+  ['python -W ignore -m pytest', /pytest/],
+  ['node -r dotenv/config --test', /node --test/],
+  ['node --import tsx --test src', /node --test/],
+  ['node --test-reporter spec --test', /node --test/],
+  ['node --run test', /node --run test/],
+  ['node --run=build', /node --run build/],
+  ['yarn run vitest', /vitest/],
+  ['bun run jest', /jest/],
+  ['npx -c "vitest run"', /vitest/],
+  ['pnpm exec -c "vitest run"', /vitest/],
+  ['npm it', /npm it/],
+  ['npm cit', /npm cit/],
+  ['yarn workspaces foreach --include web run build', /yarn run build/],
+  ['cargo --locked test', /cargo test/],
+  ['go -C apps/api test ./...', /go test/],
   ['go test ./...', /go test/],
   ['cargo test', /cargo test/],
   ['cargo +nightly test', /cargo test/],
@@ -145,6 +160,15 @@ const ALLOW = [
   'next dev',
   'vite',
   'turbo prune web',
+  'turbo prune web --out-dir build',
+  'turbo run lint --cache-dir build',
+  'python manage.py -m pytest',
+  'python -c "import pytest"',
+  'node --run lint',
+  'yarn run lint',
+  'npx -c "tsc --noEmit"',
+  'cargo --locked build',
+  'npm ci',
   'command -v vitest',
   'which jest',
   '',
@@ -205,4 +229,5 @@ test('the hook stays silent on typecheck, another tool, or bad input', () => {
   );
   assert.equal(run({ tool_name: 'Bash', tool_input: {} }), '');
   assert.equal(run('{ not json'), '');
+  assert.equal(run('null'), '');
 });

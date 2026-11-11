@@ -5,11 +5,11 @@
 // It denies a command when any simple command in it runs:
 //
 //   - a test runner: vitest, jest, `playwright test`, mocha, `node --test`, `tsx --test`,
-//     `bun test`, pytest (or `python -m pytest`), `go test`, `cargo test`;
+//     `bun test`, pytest (or `python -m pytest`), `go test`, `cargo test`, `deno test`;
 //   - a package script named `test`, `test:*`, `build` or `build:*` through pnpm, npm, yarn or
 //     bun, with or without `run`, filters (`-r`, `--filter X`, `-w X`) or a yarn workspace;
-//   - a runner reached through `pnpm exec`, `pnpm dlx`, `npx`, `bunx`, `yarn dlx`, or a binary
-//     pnpm/yarn/bun runs by name (`pnpm vitest`, `pnpm turbo build`);
+//   - a runner reached through `pnpm exec`, `pnpm dlx`, `npx`, `bunx`, `yarn dlx`, `dotenv --`,
+//     `cross-env`, or a binary pnpm/yarn/bun runs by name (`pnpm vitest`, `pnpm turbo build`);
 //   - a turbo task named `test`, `test:*`, `build` or `build:*` (`web#build` too);
 //   - `next build` or `vite build`.
 //
@@ -21,11 +21,13 @@
 import { readFileSync } from 'node:fs';
 
 import { isMain } from '../lib/is-main.mjs';
-import { parseCommands, unwrap } from './secret-guard.mjs';
-
-const basename = (w) => w.slice(w.lastIndexOf('/') + 1);
-const isOption = (w) => w.length > 1 && w.startsWith('-');
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
+import {
+  SHELLS,
+  basename,
+  isOption,
+  parseCommands,
+  unwrap,
+} from './secret-guard.mjs';
 
 // A script or task name that runs tests or a production build.
 const SCRIPT = /^(test|build)(:.*)?$/;
@@ -73,6 +75,62 @@ function firstPositional(args, value = new Set()) {
   return -1;
 }
 
+// Runtime options of node, tsx and deno that take the next word as their value.
+const NODE_VALUE = new Set([
+  '-r',
+  '--require',
+  '--import',
+  '--loader',
+  '--experimental-loader',
+  '-C',
+  '--conditions',
+  '-e',
+  '--eval',
+  '-p',
+  '--print',
+  '--env-file',
+  '--input-type',
+  '--run',
+  '--test-reporter',
+  '--test-reporter-destination',
+  '--test-name-pattern',
+  '--test-skip-pattern',
+  '--test-concurrency',
+]);
+// Global options of go and cargo that take the next word as their value.
+const GO_CARGO_VALUE = new Set(['-C', '--config', '-Z', '--color']);
+// npm commands that install and then run the test script.
+const NPM_TEST = new Set([
+  'test',
+  't',
+  'tst',
+  'it',
+  'install-test',
+  'cit',
+  'clean-install-test',
+  'install-ci-test',
+  'sit',
+]);
+// turbo options that take the next word as their value, so `--cache-dir build` is not a task.
+const TURBO_VALUE = new Set([
+  '--filter',
+  '-F',
+  '--cache-dir',
+  '--out-dir',
+  '--concurrency',
+  '--cwd',
+  '--env-mode',
+  '--log-order',
+  '--log-prefix',
+  '--output-logs',
+  '--profile',
+  '--team',
+  '--token',
+  '--api',
+  '--scope',
+  '--ui',
+]);
+
 const LOCAL =
   'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §5).';
 
@@ -81,6 +139,10 @@ function packageManagerRule(name, args, depth) {
   // npm's `-w` names a workspace; pnpm's is the root flag.
   const value = new Set(PM_VALUE);
   if (name === 'npm') value.add('-w');
+  // yarn workspaces foreach --include/--exclude/--from <glob>, -j <n>
+  if (name === 'yarn')
+    for (const o of ['--include', '--exclude', '--from', '-j', '--jobs'])
+      value.add(o);
   let rest = args;
   for (;;) {
     const k = firstPositional(rest, value);
@@ -89,11 +151,15 @@ function packageManagerRule(name, args, depth) {
     const after = rest.slice(k + 1);
     if (cmd === 'run' || cmd === 'run-script') {
       const s = firstPositional(after, value);
-      if (s !== -1 && SCRIPT.test(after[s]))
+      if (s === -1) return null;
+      if (SCRIPT.test(after[s]))
         return `\`${name} run ${after[s]}\` runs a test or build script.`;
+      // yarn and bun `run` a binary when no script has the name.
+      if (name !== 'npm' && RUNNABLE.has(basename(after[s])))
+        return judgeWords(after.slice(s), depth + 1);
       return null;
     }
-    if (cmd === 'test' || cmd === 't' || cmd === 'tst' || SCRIPT.test(cmd))
+    if (NPM_TEST.has(cmd) || SCRIPT.test(cmd))
       return `\`${name} ${cmd}\` runs a test or build script.`;
     // yarn workspace <name> <cmd>, yarn workspaces foreach <cmd>
     if (name === 'yarn' && cmd === 'workspace') {
@@ -106,7 +172,14 @@ function packageManagerRule(name, args, depth) {
     }
     if (cmd === 'exec' || cmd === 'dlx' || cmd === 'x') {
       const b = firstPositional(after, value);
-      return b === -1 ? null : judgeWords(after.slice(b), depth + 1);
+      if (b === -1) return null;
+      // `pnpm exec -c "vitest run"` runs its argument as a shell command.
+      const shell = after
+        .slice(0, b)
+        .some((a) => a === '-c' || a === '--shell-mode');
+      return shell
+        ? judge(after[b], depth + 1)
+        : judgeWords(after.slice(b), depth + 1);
     }
     // pnpm, yarn and bun run a binary when no script has the name.
     if (name !== 'npm' && RUNNABLE.has(basename(cmd)))
@@ -127,27 +200,49 @@ function judgeWords(words, depth) {
     return '`playwright test` runs tests.';
   if (name === 'node' || name === 'tsx' || name === 'deno') {
     // Options before the script are the runtime's; `--test` there runs the test runner.
-    const k = firstPositional(args);
+    const k = firstPositional(args, NODE_VALUE);
     const opts = k === -1 ? args : args.slice(0, k);
     if (opts.some((a) => a === '--test' || a.startsWith('--test=')))
       return `\`${name} --test\` runs tests.`;
+    // `node --run test` runs a package.json script.
+    for (let j = 0; j < opts.length; j++) {
+      const script = opts[j].startsWith('--run=')
+        ? opts[j].slice(6)
+        : opts[j] === '--run'
+          ? args[j + 1]
+          : undefined;
+      if (script !== undefined && SCRIPT.test(script))
+        return `\`${name} --run ${script}\` runs a test or build script.`;
+    }
     if (name === 'deno' && args[k] === 'test') return '`deno test` runs tests.';
     return null;
   }
   if (/^python[\d.]*$/.test(name)) {
-    const m = args.indexOf('-m');
-    if (m !== -1 && /^(pytest|unittest)$/.test(args[m + 1] ?? ''))
-      return `\`${name} -m ${args[m + 1]}\` runs tests.`;
+    // Only interpreter options count: `python manage.py -m pytest` passes `-m` to the script.
+    for (let k = 0; k < args.length; k++) {
+      const a = args[k];
+      if (a === '-m')
+        return /^(pytest|unittest)$/.test(args[k + 1] ?? '')
+          ? `\`${name} -m ${args[k + 1]}\` runs tests.`
+          : null;
+      if (a === '-c' || !isOption(a)) return null;
+      if (a === '-W' || a === '-X') k++;
+    }
     return null;
   }
-  // `cargo +nightly test`: a toolchain comes first.
-  if (
-    (name === 'go' || name === 'cargo') &&
-    args.filter((a) => !a.startsWith('+'))[0] === 'test'
-  )
-    return `\`${name} test\` runs tests.`;
+  // `cargo +nightly test`, `cargo --locked test`, `go -C dir test`: global options come first.
+  if (name === 'go' || name === 'cargo') {
+    const sub = args.filter((a) => !a.startsWith('+'));
+    return sub[firstPositional(sub, GO_CARGO_VALUE)] === 'test'
+      ? `\`${name} test\` runs tests.`
+      : null;
+  }
   if (name === 'turbo') {
-    const task = args.find((a) => !isOption(a) && TURBO_TASK.test(a));
+    let task;
+    for (let k = 0; k < args.length && !task; k++) {
+      if (TURBO_VALUE.has(args[k])) k++;
+      else if (!isOption(args[k]) && TURBO_TASK.test(args[k])) task = args[k];
+    }
     return task ? `\`turbo ${task}\` runs a test or build task.` : null;
   }
   if (
@@ -156,10 +251,15 @@ function judgeWords(words, depth) {
   )
     return `\`${name} build\` runs a production build.`;
   if (name === 'npx' || name === 'pnpx' || name === 'bunx') {
-    const k = firstPositional(
-      args,
-      new Set(['-p', '--package', '-c', '--call']),
-    );
+    // `npx -c "vitest run"` runs its value as a shell command.
+    for (let j = 0; j < args.length; j++) {
+      if (args[j] === '-c' || args[j] === '--call')
+        return j + 1 < args.length ? judge(args[j + 1], depth + 1) : null;
+      if (args[j].startsWith('--call='))
+        return judge(args[j].slice(7), depth + 1);
+      if (!isOption(args[j])) break;
+    }
+    const k = firstPositional(args, new Set(['-p', '--package']));
     return k === -1 ? null : judgeWords(args.slice(k), depth + 1);
   }
   if (name === 'pnpm' || name === 'npm' || name === 'yarn' || name === 'bun')
@@ -233,11 +333,11 @@ if (isMain(import.meta.url)) {
   } catch {
     process.exit(0);
   }
-  if (input.tool_name !== undefined && input.tool_name !== 'Bash')
+  if (input?.tool_name !== undefined && input.tool_name !== 'Bash')
     process.exit(0);
   let reason = null;
   try {
-    reason = localTestDecision(input.tool_input?.command);
+    reason = localTestDecision(input?.tool_input?.command);
   } catch {
     // A parser failure must never block work; this guard catches habits, it is not a sandbox.
     process.exit(0);
