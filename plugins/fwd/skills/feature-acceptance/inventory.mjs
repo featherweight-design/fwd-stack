@@ -4,8 +4,8 @@
 // malformed file the same way.
 //
 // Everything here is pure, so the rules that decide whether a run can quietly pass are pinned by
-// tests rather than trusted: an unknown verb, an empty `widths`, a row with no steps and a local
-// base URL are all errors before a browser starts.
+// tests rather than trusted: an unknown verb, an empty `widths`, a row with no steps and a
+// production or plaintext-remote base URL are all errors before a browser starts.
 
 /**
  * The verbs a step may carry, in the order they run within one step. A verb that must run in
@@ -257,44 +257,60 @@ export function expand(
   });
 }
 
+/** Hostname without brackets or trailing dots, lowercased: `localhost.` is localhost. */
+const hostOf = (url) =>
+  url.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '')
+    .toLowerCase();
+
 /**
- * Why this base URL is refused, or null. The contact sheet photographs a deployed build (staging,
- * a preview): a local build is not what users get, and a local server's data is fixtures.
+ * This machine: the lane's own dev server. Addresses only: `127.example.com` is a name, not
+ * loopback, and plaintext to it would send the sign-in in the clear.
  */
-export function baseUrlError(raw) {
+const isLoopback = (host) =>
+  host === 'localhost' ||
+  host === '::1' ||
+  /^127(\.\d{1,3}){3}$/.test(host) ||
+  /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
+
+/**
+ * Why this base URL is refused, or null.
+ *
+ * Before a PR opens, the change exists only on the lane's machine, so the sheet's pre-PR target is
+ * the local DEV server (`pnpm dev` at http://localhost:<port>; a dev server is not a build or a test
+ * run). After merge, staging or a preview is the target for audits. Any other origin must be https.
+ * The project's production origins (`productionUrl`, one or a list of every alias) are refused
+ * when set: a signed-in walk there runs against real users' data.
+ */
+export function baseUrlError(raw, { productionUrl } = {}) {
   let url;
   try {
     url = new URL(raw);
   } catch {
     return `not a URL: ${raw}`;
   }
-  if (url.protocol !== 'https:')
-    return `${raw} is not https: point the sheet at a deployed URL such as staging`;
-  // Brackets off, trailing dots off (`localhost.` is localhost), lowercased.
-  const host = url.hostname
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.+$/, '')
-    .toLowerCase();
-  // An IPv6 literal is refused outright: a deployed build has a hostname, and the mapped and
-  // link-local forms (`::ffff:7f00:1`, `fe80::`) are too many to list.
-  if (host.includes(':'))
-    return `${raw} is an IP address: point the sheet at the deployed build's hostname`;
-  const local =
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local') ||
-    host === '::1' ||
-    host === '0.0.0.0' ||
-    /^127\./.test(host) ||
-    /^0\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (local)
-    return `${raw} is a local address: the sheet photographs a deployed build, never a local one`;
   if (url.pathname !== '/' || url.search || url.hash)
     return `${raw}: the base URL is an origin only; paths go in each row's goto`;
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    return `${raw}: the base URL is http or https`;
+  const host = hostOf(url);
+  if (!isLoopback(host) && url.protocol !== 'https:')
+    return `${raw} is not https: use the local dev server (http://localhost:<port>) or an https staging or preview origin`;
+  if (productionUrl === undefined) return null;
+  const prods = [productionUrl].flat();
+  if (prods.length === 0 || prods.some((p) => typeof p !== 'string' || !p))
+    return 'featureAcceptance.productionUrl is an origin, or a list of every production origin; omit it rather than leave it empty';
+  for (const p of prods) {
+    let prod;
+    try {
+      prod = new URL(p);
+    } catch {
+      return `featureAcceptance.productionUrl is not a URL: ${p}`;
+    }
+    if (hostOf(prod) === host && prod.port === url.port)
+      return `${raw} is production (featureAcceptance.productionUrl): sheet the local dev server before the PR, staging after merge`;
+  }
   return null;
 }
 
@@ -305,7 +321,7 @@ const escapeHtml = (s) =>
  * The sheet page: every shot as a captioned figure, inlined as data URIs (the sheet is built on
  * about:blank, a different origin from any file:// path). `shots` are `{ label, size, note, data }`.
  */
-export function sheetHtml(feature, shots) {
+export function sheetHtml(feature, shots, origin = '') {
   const cards = shots
     .map((s) => {
       const img = s.data
@@ -325,6 +341,6 @@ export function sheetHtml(feature, shots) {
   .missing { height: 200px; display: grid; place-items: center; border: 1px dashed #6e6654; }
   b { color: #e8927c; }
 </style>
-<h1>${escapeHtml(feature)}: every route, every width</h1>
+<h1>${escapeHtml(feature)}: every route, every width${origin ? ` · ${escapeHtml(origin)}` : ''}</h1>
 <div class="grid">${cards}</div>`;
 }

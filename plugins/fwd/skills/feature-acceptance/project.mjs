@@ -4,7 +4,8 @@
 // from the project's own node_modules and says so loudly when that is missing.
 //
 //   "featureAcceptance": {
-//     "baseUrl": "https://staging.example.com",       // contact sheet: a deployed URL, never local
+//     "baseUrl": "http://localhost:3000",             // contact sheet: the local dev server pre-PR
+//     "productionUrl": ["https://app.example.com"],   // every production origin; refused as a base
 //     "widths": [{ "label": "phone", "width": 390, "height": 844 },
 //                { "label": "desktop", "width": 1300, "height": 900 }],
 //     "pageScope": "main",                            // selector page content lives in ("" = none)
@@ -12,7 +13,8 @@
 //     "inventories": "docs/superpowers/inventories",  // where a feature's inventory JSON lives
 //     "out": "contact-sheets",                        // gitignored; one folder per inventory
 //     "aliases": { "@/": "src/" },                    // import aliases, for check-shared
-//     "packageDir": "apps/web",                       // monorepo: where playwright/typescript install
+//     "packageDir": ["apps/e2e", "apps/web"],         // monorepo: folders searched for playwright
+//                                                     //   and typescript, in order (or one string)
 //     "tokens": {
 //       "declare": ["src/app/globals.css"],           // theme files: every `--x:` here is global
 //       "read": ["src/**/*.{ts,tsx,css}"],            // files whose var(--x) reads must resolve
@@ -121,11 +123,19 @@ export function need(block, key, what) {
 }
 
 /**
- * A package from the project's node_modules, never the kit's: `packageDir` first (a monorepo's app
- * folder, featureAcceptance.packageDir), then the root.
+ * A package from the project's node_modules, never the kit's: each `packageDir` folder in order
+ * (featureAcceptance.packageDir, one folder or a list, for a monorepo whose Playwright and
+ * TypeScript live in different apps), then the root.
  */
 export async function importFromProject(root, names, why, packageDir = '.') {
-  const dirs = [...new Set([path.resolve(root, packageDir), root])];
+  const listed = [packageDir ?? '.'].flat();
+  if (listed.some((d) => typeof d !== 'string' || !d))
+    throw new SetupError(
+      'featureAcceptance.packageDir is a folder, or a list of folders',
+    );
+  const dirs = [
+    ...new Set([...listed.map((d) => path.resolve(root, d)), root]),
+  ];
   for (const dir of dirs)
     for (const name of names) {
       let resolved;
