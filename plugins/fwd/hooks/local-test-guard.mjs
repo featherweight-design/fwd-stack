@@ -62,6 +62,15 @@ const PM_VALUE = new Set([
   '--loglevel',
   '--test-pattern',
   '--changed-files-ignore-pattern',
+  '--workspace-concurrency',
+  '--network-concurrency',
+  '--child-concurrency',
+  '--tag',
+  '--registry',
+  '--otp',
+  '--access',
+  '--userconfig',
+  '--cache',
 ]);
 // The first positional of a command, skipping options. `value` lists options that take the
 // next word as their value.
@@ -129,6 +138,28 @@ const TURBO_VALUE = new Set([
   '--api',
   '--scope',
   '--ui',
+]);
+
+// turbo subcommands that run no task, so a later `build` word is an argument, not a task.
+const TURBO_OTHER = new Set([
+  'prune',
+  'gen',
+  'generate',
+  'login',
+  'logout',
+  'link',
+  'unlink',
+  'ls',
+  'query',
+  'info',
+  'daemon',
+  'telemetry',
+  'boundaries',
+  'scan',
+  'bin',
+  'completion',
+  'config',
+  'devtools',
 ]);
 
 const LOCAL =
@@ -238,11 +269,15 @@ function judgeWords(words, depth) {
       : null;
   }
   if (name === 'turbo') {
-    let task;
-    for (let k = 0; k < args.length && !task; k++) {
+    // Positionals up to `--` (the rest is passed through to the tasks).
+    const pos = [];
+    for (let k = 0; k < args.length && args[k] !== '--'; k++) {
       if (TURBO_VALUE.has(args[k])) k++;
-      else if (!isOption(args[k]) && TURBO_TASK.test(args[k])) task = args[k];
+      else if (!isOption(args[k])) pos.push(args[k]);
     }
+    // Only `turbo run`, `turbo watch` and the bare `turbo <task>` run tasks.
+    if (TURBO_OTHER.has(pos[0])) return null;
+    const task = pos.find((a) => TURBO_TASK.test(a));
     return task ? `\`turbo ${task}\` runs a test or build task.` : null;
   }
   if (
@@ -272,8 +307,10 @@ function judgeWords(words, depth) {
   }
   if (name === 'cross-env' || name === 'cross-env-shell') {
     const rest = args.filter((a) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(a));
+    // cross-env-shell hands its words to a shell, which reads leading assignments itself; a
+    // quoted `"NODE_ENV=test pnpm test"` is one word, so filtering it would drop the command.
     return name === 'cross-env-shell'
-      ? judge(rest.join(' '), depth + 1)
+      ? judge(args.join(' '), depth + 1)
       : judgeWords(rest, depth + 1);
   }
   return null;
