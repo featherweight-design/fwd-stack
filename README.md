@@ -206,7 +206,7 @@ marketplace first:
 | Skill                | What it does                                                                                                   |
 | -------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `pr-review`          | The Copilot review cycle and merge bar: the skill, its gate (`pr-gate.mjs`), watcher and hook                  |
-| `feature-acceptance` | Proves a UI feature landed on every route and viewport it claimed                                              |
+| `feature-acceptance` | Proves a UI feature landed on every route and viewport: contact sheet, `check-shared` and `check-tokens` tools |
 | `design-review`      | Compares an implementation against its design handoff, property by property                                    |
 | `design-status`      | A fixed-shape readout of the design pipeline's state                                                           |
 | `css-layout-triage`  | Measurement-first triage for layout bugs that resist fixing                                                    |
