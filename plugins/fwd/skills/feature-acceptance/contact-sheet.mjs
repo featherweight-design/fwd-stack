@@ -12,7 +12,9 @@
 // has no evidence in it, and a sheet with a hole that exited 0 would be the quiet pass this exists
 // to prevent. So does a run that photographed nothing. Exit 1 then; exit 2 when it cannot run.
 //
-// It photographs a DEPLOYED build (staging, a preview), never a local one: `--base`, else
+// Before a PR opens, point it at the lane's local DEV server (`pnpm dev`, http://localhost:<port>;
+// never a build): that is the only place the change exists yet. After merge, staging or a preview
+// serves audits. The configured production origin is refused. The base is `--base`, else
 // CONTACT_SHEET_BASE, else featureAcceptance.baseUrl. Playwright comes from the project's own
 // node_modules, and signing in is the project's module (featureAcceptance.signIn), so nothing here
 // knows any one app. One script for every project: a feature adds an inventory, never a script.
@@ -145,9 +147,13 @@ async function main() {
   const base = (
     flags.base ??
     process.env.CONTACT_SHEET_BASE ??
-    need(cfg, 'baseUrl', 'the deployed URL to photograph, e.g. staging')
+    need(
+      cfg,
+      'baseUrl',
+      'the origin to photograph: the local dev server (http://localhost:3000) before a PR',
+    )
   ).replace(/\/$/, '');
-  const baseError = baseUrlError(base);
+  const baseError = baseUrlError(base, { productionUrl: cfg.productionUrl });
   if (baseError) throw new SetupError(baseError);
 
   const widths =

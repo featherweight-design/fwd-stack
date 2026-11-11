@@ -257,44 +257,48 @@ export function expand(
   });
 }
 
+/** Hostname without brackets or trailing dots, lowercased: `localhost.` is localhost. */
+const hostOf = (url) =>
+  url.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '')
+    .toLowerCase();
+
+/** This machine: the lane's own dev server. */
+const isLoopback = (host) =>
+  host === 'localhost' || host === '::1' || /^127\./.test(host);
+
 /**
- * Why this base URL is refused, or null. The contact sheet photographs a deployed build (staging,
- * a preview): a local build is not what users get, and a local server's data is fixtures.
+ * Why this base URL is refused, or null.
+ *
+ * Before a PR opens, the change exists only on the lane's machine, so the sheet's pre-PR target is
+ * the local DEV server (`pnpm dev` at http://localhost:<port>; a dev server is not a build or a test
+ * run). After merge, staging or a preview is the target for audits. Any other origin must be https.
+ * The one origin always refused is the project's production (`productionUrl`): a signed-in walk
+ * there runs against real users' data.
  */
-export function baseUrlError(raw) {
+export function baseUrlError(raw, { productionUrl } = {}) {
   let url;
   try {
     url = new URL(raw);
   } catch {
     return `not a URL: ${raw}`;
   }
-  if (url.protocol !== 'https:')
-    return `${raw} is not https: point the sheet at a deployed URL such as staging`;
-  // Brackets off, trailing dots off (`localhost.` is localhost), lowercased.
-  const host = url.hostname
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.+$/, '')
-    .toLowerCase();
-  // An IPv6 literal is refused outright: a deployed build has a hostname, and the mapped and
-  // link-local forms (`::ffff:7f00:1`, `fe80::`) are too many to list.
-  if (host.includes(':'))
-    return `${raw} is an IP address: point the sheet at the deployed build's hostname`;
-  const local =
-    host === 'localhost' ||
-    host.endsWith('.localhost') ||
-    host.endsWith('.local') ||
-    host === '::1' ||
-    host === '0.0.0.0' ||
-    /^127\./.test(host) ||
-    /^0\./.test(host) ||
-    /^169\.254\./.test(host) ||
-    /^10\./.test(host) ||
-    /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
-  if (local)
-    return `${raw} is a local address: the sheet photographs a deployed build, never a local one`;
   if (url.pathname !== '/' || url.search || url.hash)
     return `${raw}: the base URL is an origin only; paths go in each row's goto`;
+  const host = hostOf(url);
+  if (!isLoopback(host) && url.protocol !== 'https:')
+    return `${raw} is not https: use the local dev server (http://localhost:<port>) or an https staging or preview origin`;
+  if (productionUrl) {
+    let prod;
+    try {
+      prod = new URL(productionUrl);
+    } catch {
+      return `featureAcceptance.productionUrl is not a URL: ${productionUrl}`;
+    }
+    if (hostOf(prod) === host && prod.port === url.port)
+      return `${raw} is production (featureAcceptance.productionUrl): sheet the local dev server before the PR, staging after merge`;
+  }
   return null;
 }
 

@@ -4,7 +4,8 @@
 // from the project's own node_modules and says so loudly when that is missing.
 //
 //   "featureAcceptance": {
-//     "baseUrl": "https://staging.example.com",       // contact sheet: a deployed URL, never local
+//     "baseUrl": "http://localhost:3000",             // contact sheet: the local dev server pre-PR
+//     "productionUrl": "https://app.example.com",     // refused as a base; staging is for audits
 //     "widths": [{ "label": "phone", "width": 390, "height": 844 },
 //                { "label": "desktop", "width": 1300, "height": 900 }],
 //     "pageScope": "main",                            // selector page content lives in ("" = none)

@@ -196,33 +196,51 @@ test('expand escapes a value for a regex, leaving the pattern around it alone', 
   assert.ok(!new RegExp(pattern).test('+2 Mac'));
 });
 
-test('the base URL is a deployed https origin, never local', () => {
-  assert.equal(baseUrlError('https://staging.example.com'), null);
-  assert.equal(baseUrlError('https://staging.example.com/'), null);
-  for (const local of [
+test('the base URL: the local dev server before the PR, staging or a preview after merge', () => {
+  for (const ok of [
     'http://localhost:3000',
+    'http://localhost:5173/',
     'https://localhost:3000',
-    'https://127.0.0.1',
-    'https://192.168.1.4',
-    'https://10.0.0.2',
-    'https://172.20.0.1',
-    'https://[::1]:3000',
-    'https://app.local',
-    'https://0.0.0.0',
-    'https://localhost.',
-    'https://LOCALHOST',
-    'https://[::ffff:127.0.0.1]',
-    'https://[::]',
-    'https://[fe80::1]',
-    'https://169.254.1.1',
+    'http://127.0.0.1:3000',
+    'http://[::1]:3000',
+    'http://LOCALHOST.:3000',
+    'https://staging.example.com',
+    'https://staging.example.com/',
+    'https://app-git-feature.example.vercel.app',
   ])
-    assert.ok(baseUrlError(local), local);
+    assert.equal(baseUrlError(ok), null, ok);
+});
+
+test('the base URL: a remote origin must be https, and an origin only', () => {
   assert.match(baseUrlError('http://staging.example.com'), /not https/);
+  assert.match(baseUrlError('http://192.168.1.4:3000'), /not https/);
   assert.match(
     baseUrlError('https://staging.example.com/decks'),
     /origin only/,
   );
+  assert.match(baseUrlError('http://localhost:3000/decks'), /origin only/);
   assert.match(baseUrlError('nope'), /not a URL/);
+});
+
+test('the base URL: the configured production origin is refused, nothing else is', () => {
+  const productionUrl = 'https://app.example.com';
+  assert.match(
+    baseUrlError('https://app.example.com', { productionUrl }),
+    /is production/,
+  );
+  assert.match(
+    baseUrlError('https://APP.example.com.', { productionUrl }),
+    /is production/,
+  );
+  assert.equal(
+    baseUrlError('https://staging.example.com', { productionUrl }),
+    null,
+  );
+  assert.equal(baseUrlError('http://localhost:3000', { productionUrl }), null);
+  assert.match(
+    baseUrlError('https://x.dev', { productionUrl: 'nope' }),
+    /productionUrl is not a URL/,
+  );
 });
 
 test('the sheet escapes labels and notes, and marks a cell with no screenshot', () => {
