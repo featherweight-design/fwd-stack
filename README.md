@@ -257,8 +257,10 @@ It does five things:
 
 `machine/verify.sh` checks that the guards answer as they should: the Neon guard, the merge
 gate, the autonomous-run guard, the secret-print guard (which denies Bash commands that would
-print a secret, such as an environment dump or `cat .env`) and the local-test guard (which denies
-running a test suite or a production build locally; CI is the only test gate). Run the switch
+print a secret, such as an environment dump or `cat .env`), the local-test guard (which denies
+running a test suite or a production build locally; CI is the only test gate) and the
+foreground-wait guard (which denies a long wait in the foreground, such as a `sleep` polling loop
+or `gh pr checks --watch`, unless the call runs with `run_in_background`). Run the switch
 when no session is mid-review or mid-merge, then restart sessions so they load the plugin's hooks.
 
 ### Updating

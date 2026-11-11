@@ -86,6 +86,9 @@ to a log, which can never wake a session.
 - Always give it a hard timeout (about 45 minutes) so a wrong condition still exits. Set any
   baseline count before you request the review, not after.
 - Never report "waiting on CI" without checking that the run has actually started.
+- Never wait in the foreground, even with the away window open: the user may check in on any
+  session, and a foreground wait holds the turn. Foreground commands are for quick work (roughly
+  under 30 seconds); the foreground-wait guard denies the rest (`orchestrator` §6).
 
 ## 4 · Keep context small
 

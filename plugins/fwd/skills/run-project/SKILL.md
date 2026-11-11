@@ -61,6 +61,9 @@ Every lane and subagent pays for the project's agent docs at start. Keep `AGENTS
 4. Arm the stall watchdog (`orchestrator` §6). When the user leaves, open the away window and arm the
    autonomous-run guard for its whole span (`orchestrator` §6). While it is open, no lane stops or
    rotates for context, past `rotateAt` or not (`orchestrator` §7).
+   Every wait, by every session, runs in the background (`run_in_background`, the watchdog or
+   Monitor) so the notification wakes it; never in the foreground, present or away
+   (`orchestrator` §6).
 
 ## 3 · The lane brief
 
@@ -84,9 +87,10 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   list every scratch database branch you create; name scratch files after their PR or task
   (pr<N>-body.md), never a generic name, and read a body file back before --body-file;
   typecheck and lint only, never tests or a production build locally, CI runs them
-  (pr-review §5); full pr-review on every PR; copy through copy-review; UI only on a handoff
-  with a READINESS verdict, a `## Design review` table and a contact sheet in every UI PR,
-  design/ as reference only.
+  (pr-review §5); every wait runs in the background (`run_in_background` or Monitor), never
+  a foreground loop (orchestrator §6); full pr-review on every PR; copy through copy-review;
+  UI only on a handoff with a READINESS verdict, a `## Design review` table and a contact
+  sheet in every UI PR, design/ as reference only.
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
 STOPPING POINT: <"merged and production health OK" | "plan sent to me" | "report before building">
