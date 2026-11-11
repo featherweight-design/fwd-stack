@@ -4,8 +4,8 @@
 // malformed file the same way.
 //
 // Everything here is pure, so the rules that decide whether a run can quietly pass are pinned by
-// tests rather than trusted: an unknown verb, an empty `widths`, a row with no steps and a local
-// base URL are all errors before a browser starts.
+// tests rather than trusted: an unknown verb, an empty `widths`, a row with no steps and a
+// production or plaintext-remote base URL are all errors before a browser starts.
 
 /**
  * The verbs a step may carry, in the order they run within one step. A verb that must run in
@@ -264,9 +264,15 @@ const hostOf = (url) =>
     .replace(/\.+$/, '')
     .toLowerCase();
 
-/** This machine: the lane's own dev server. */
+/**
+ * This machine: the lane's own dev server. Addresses only: `127.example.com` is a name, not
+ * loopback, and plaintext to it would send the sign-in in the clear.
+ */
 const isLoopback = (host) =>
-  host === 'localhost' || host === '::1' || /^127\./.test(host);
+  host === 'localhost' ||
+  host === '::1' ||
+  /^127(\.\d{1,3}){3}$/.test(host) ||
+  /^::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}$/.test(host);
 
 /**
  * Why this base URL is refused, or null.
@@ -274,8 +280,8 @@ const isLoopback = (host) =>
  * Before a PR opens, the change exists only on the lane's machine, so the sheet's pre-PR target is
  * the local DEV server (`pnpm dev` at http://localhost:<port>; a dev server is not a build or a test
  * run). After merge, staging or a preview is the target for audits. Any other origin must be https.
- * The one origin always refused is the project's production (`productionUrl`): a signed-in walk
- * there runs against real users' data.
+ * The project's production origins (`productionUrl`, one or a list of every alias) are refused
+ * when set: a signed-in walk there runs against real users' data.
  */
 export function baseUrlError(raw, { productionUrl } = {}) {
   let url;
@@ -286,15 +292,21 @@ export function baseUrlError(raw, { productionUrl } = {}) {
   }
   if (url.pathname !== '/' || url.search || url.hash)
     return `${raw}: the base URL is an origin only; paths go in each row's goto`;
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    return `${raw}: the base URL is http or https`;
   const host = hostOf(url);
   if (!isLoopback(host) && url.protocol !== 'https:')
     return `${raw} is not https: use the local dev server (http://localhost:<port>) or an https staging or preview origin`;
-  if (productionUrl) {
+  if (productionUrl === undefined) return null;
+  const prods = [productionUrl].flat();
+  if (prods.length === 0 || prods.some((p) => typeof p !== 'string' || !p))
+    return 'featureAcceptance.productionUrl is an origin, or a list of every production origin; omit it rather than leave it empty';
+  for (const p of prods) {
     let prod;
     try {
-      prod = new URL(productionUrl);
+      prod = new URL(p);
     } catch {
-      return `featureAcceptance.productionUrl is not a URL: ${productionUrl}`;
+      return `featureAcceptance.productionUrl is not a URL: ${p}`;
     }
     if (hostOf(prod) === host && prod.port === url.port)
       return `${raw} is production (featureAcceptance.productionUrl): sheet the local dev server before the PR, staging after merge`;
@@ -309,7 +321,7 @@ const escapeHtml = (s) =>
  * The sheet page: every shot as a captioned figure, inlined as data URIs (the sheet is built on
  * about:blank, a different origin from any file:// path). `shots` are `{ label, size, note, data }`.
  */
-export function sheetHtml(feature, shots) {
+export function sheetHtml(feature, shots, origin = '') {
   const cards = shots
     .map((s) => {
       const img = s.data
@@ -329,6 +341,6 @@ export function sheetHtml(feature, shots) {
   .missing { height: 200px; display: grid; place-items: center; border: 1px dashed #6e6654; }
   b { color: #e8927c; }
 </style>
-<h1>${escapeHtml(feature)}: every route, every width</h1>
+<h1>${escapeHtml(feature)}: every route, every width${origin ? ` · ${escapeHtml(origin)}` : ''}</h1>
 <div class="grid">${cards}</div>`;
 }

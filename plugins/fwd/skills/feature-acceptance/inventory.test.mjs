@@ -211,7 +211,7 @@ test('the base URL: the local dev server before the PR, staging or a preview aft
     assert.equal(baseUrlError(ok), null, ok);
 });
 
-test('the base URL: a remote origin must be https, and an origin only', () => {
+test('the base URL: a remote origin must be https; every base is an http(s) origin only', () => {
   assert.match(baseUrlError('http://staging.example.com'), /not https/);
   assert.match(baseUrlError('http://192.168.1.4:3000'), /not https/);
   assert.match(
@@ -220,9 +220,14 @@ test('the base URL: a remote origin must be https, and an origin only', () => {
   );
   assert.match(baseUrlError('http://localhost:3000/decks'), /origin only/);
   assert.match(baseUrlError('nope'), /not a URL/);
+  // A name that starts with 127 is not loopback: plaintext to it would leave the machine.
+  assert.match(baseUrlError('http://127.example.com'), /not https/);
+  assert.match(baseUrlError('http://127.0.0.1.evil.example'), /not https/);
+  assert.match(baseUrlError('ws://localhost:3000'), /http or https/);
+  assert.equal(baseUrlError('http://[::ffff:127.0.0.1]:3000'), null);
 });
 
-test('the base URL: the configured production origin is refused, nothing else is', () => {
+test('the base URL: every configured production origin is refused', () => {
   const productionUrl = 'https://app.example.com';
   assert.match(
     baseUrlError('https://app.example.com', { productionUrl }),
@@ -240,6 +245,24 @@ test('the base URL: the configured production origin is refused, nothing else is
   assert.match(
     baseUrlError('https://x.dev', { productionUrl: 'nope' }),
     /productionUrl is not a URL/,
+  );
+  assert.match(
+    baseUrlError('https://x.dev', { productionUrl: '' }),
+    /omit it rather/,
+  );
+  assert.match(
+    baseUrlError('https://x.dev', { productionUrl: [] }),
+    /omit it rather/,
+  );
+  // Every alias is listed, and each is refused; a different port is a different origin.
+  const aliases = ['https://app.example.com', 'https://www.app.example.com'];
+  assert.match(
+    baseUrlError('https://www.app.example.com', { productionUrl: aliases }),
+    /is production/,
+  );
+  assert.equal(
+    baseUrlError('https://app.example.com:8443', { productionUrl: aliases }),
+    null,
   );
 });
 

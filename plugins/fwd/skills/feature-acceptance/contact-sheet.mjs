@@ -155,6 +155,11 @@ async function main() {
   ).replace(/\/$/, '');
   const baseError = baseUrlError(base, { productionUrl: cfg.productionUrl });
   if (baseError) throw new SetupError(baseError);
+  // Named on every run and on the sheet, so a sheet of the wrong server (another worktree's dev
+  // server on the same port, local when staging was meant) is visible as such.
+  console.log(
+    `photographing ${base}${cfg.productionUrl ? '' : ' (no productionUrl set, so production is not refused)'}`,
+  );
 
   const widths =
     inventory.widths ?? need(cfg, 'widths', 'the phone and desktop viewports');
@@ -276,7 +281,7 @@ async function main() {
           .catch(() => null),
       })),
     );
-    await sheetPage.setContent(sheetHtml(inventory.feature, withData));
+    await sheetPage.setContent(sheetHtml(inventory.feature, withData, base));
     await sheetPage.waitForTimeout(600);
     const sheet = path.join(outDir, 'sheet.png');
     await sheetPage.screenshot({ path: sheet, fullPage: true });

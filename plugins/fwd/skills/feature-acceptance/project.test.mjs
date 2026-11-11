@@ -1,7 +1,7 @@
 // node --test project.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -106,5 +106,35 @@ test('importFromProject: a package the project lacks is a SetupError saying why'
     (e) =>
       e instanceof SetupError &&
       /playwright or @playwright\/test is not installed/.test(e.message),
+  );
+});
+
+test('importFromProject: packageDir may list several folders, searched in order, then the root', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'fwd-pkgdir-'));
+  writeFileSync(path.join(root, 'package.json'), '{}');
+  // A stand-in package installed in the second app only.
+  const pkg = path.join(root, 'apps', 'web', 'node_modules', 'fake-ts');
+  mkdirSync(pkg, { recursive: true });
+  writeFileSync(path.join(root, 'apps', 'web', 'package.json'), '{}');
+  writeFileSync(
+    path.join(pkg, 'package.json'),
+    '{"name":"fake-ts","main":"index.js"}',
+  );
+  writeFileSync(
+    path.join(pkg, 'index.js'),
+    'module.exports = { found: "web" };',
+  );
+  const mod = await importFromProject(root, ['fake-ts'], 'why', [
+    'apps/e2e',
+    'apps/web',
+  ]);
+  assert.equal(mod.found, 'web');
+  await assert.rejects(
+    importFromProject(root, ['fake-ts'], 'why', 'apps/e2e'),
+    /is not installed in .*apps\/e2e or /,
+  );
+  await assert.rejects(
+    importFromProject(root, ['fake-ts'], 'why', ['']),
+    /a list of folders/,
   );
 });
