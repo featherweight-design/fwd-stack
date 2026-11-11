@@ -22,6 +22,7 @@
 //   }
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -33,18 +34,44 @@ export const SETUP_FAILED = 2;
 
 export class SetupError extends Error {}
 
-/** `--name value` flags and positional arguments, in order. */
-export function parseArgs(argv) {
+/**
+ * `--name value` flags and positional arguments. `valued` flags take a value and `switches` take
+ * none; anything else is a SetupError, so a typo'd `--strict-hx` cannot quietly leave a check soft.
+ */
+export function parseArgs(argv, { valued = [], switches = [] } = {}) {
   const flags = {};
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (!arg.startsWith('--')) positional.push(arg);
+    if (!arg.startsWith('--')) {
+      positional.push(arg);
+      continue;
+    }
+    const name = arg.slice(2);
+    if (switches.includes(name)) flags[name] = true;
+    else if (!valued.includes(name))
+      throw new SetupError(`unknown flag ${arg}`);
     else if (argv[i + 1] === undefined || argv[i + 1].startsWith('--'))
-      flags[arg.slice(2)] = true;
-    else flags[arg.slice(2)] = argv[++i];
+      throw new SetupError(`${arg} takes a value`);
+    else flags[name] = argv[++i];
   }
   return { flags, positional };
+}
+
+/** The inventory JSON, or a SetupError: a missing or malformed file is not a run. */
+export async function readInventory(file) {
+  if (!file) throw new SetupError('pass the inventory JSON path');
+  let text;
+  try {
+    text = await readFile(path.resolve(file), 'utf8');
+  } catch (error) {
+    throw new SetupError(`cannot read ${file}: ${error.code ?? error}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new SetupError(`${file} is not JSON: ${error.message}`);
+  }
 }
 
 /** `--root`, else the git toplevel of the working directory, else the working directory. */
@@ -73,7 +100,7 @@ export function acceptanceConfig(root, load = loadConfig) {
   if (!block || typeof block !== 'object')
     throw new SetupError(
       `${path.join(root, '.claude', 'fwd.json')} has no "featureAcceptance" block. ` +
-        'The feature-acceptance skill lists its fields; add them before running this tool.',
+        "Its fields are listed at the top of the kit's feature-acceptance/project.mjs.",
     );
   return block;
 }

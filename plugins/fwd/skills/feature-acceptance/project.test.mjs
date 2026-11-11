@@ -11,14 +11,49 @@ import {
   need,
   parseArgs,
   projectRoot,
+  readInventory,
   SetupError,
 } from './project.mjs';
 
-test('parseArgs: flags with values, bare flags and positionals', () => {
-  assert.deepEqual(parseArgs(['inv.json', '--root', '/p', '--strict-hex']), {
-    flags: { root: '/p', 'strict-hex': true },
-    positional: ['inv.json'],
+test('parseArgs: valued flags, switches and positionals', () => {
+  assert.deepEqual(
+    parseArgs(['inv.json', '--root', '/p', '--strict-hex'], {
+      valued: ['root'],
+      switches: ['strict-hex'],
+    }),
+    { flags: { root: '/p', 'strict-hex': true }, positional: ['inv.json'] },
+  );
+});
+
+test('parseArgs: an unknown flag, or a valued flag with no value, is a SetupError', () => {
+  const opts = { valued: ['root'], switches: ['strict-hex'] };
+  assert.throws(
+    () => parseArgs(['--strict-hx'], opts),
+    /unknown flag --strict-hx/,
+  );
+  assert.throws(() => parseArgs(['--root'], opts), /--root takes a value/);
+  assert.throws(
+    () => parseArgs(['--root', '--strict-hex'], opts),
+    (e) => e instanceof SetupError,
+  );
+});
+
+test('readInventory: a missing or malformed file is a SetupError', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'fwd-inv-'));
+  writeFileSync(path.join(dir, 'bad.json'), '{ nope');
+  writeFileSync(path.join(dir, 'ok.json'), '{"feature":"x"}');
+  assert.deepEqual(await readInventory(path.join(dir, 'ok.json')), {
+    feature: 'x',
   });
+  await assert.rejects(
+    readInventory(path.join(dir, 'bad.json')),
+    /is not JSON/,
+  );
+  await assert.rejects(
+    readInventory(path.join(dir, 'gone.json')),
+    /cannot read/,
+  );
+  await assert.rejects(readInventory(undefined), /pass the inventory/);
 });
 
 test('projectRoot: --root wins, resolved against the working directory', () => {

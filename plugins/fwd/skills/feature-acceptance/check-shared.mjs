@@ -26,6 +26,7 @@ import {
   importFromProject,
   parseArgs,
   projectRoot,
+  readInventory,
   runTool,
   SetupError,
 } from './project.mjs';
@@ -156,11 +157,21 @@ function isUse(ts, node) {
   if (ts.isPropertyAccessExpression(parent) && parent.name === node)
     return false;
   if (ts.isQualifiedName(parent) && parent.right === node) return false;
+  // A key, a member name or a JSX attribute name names something else; a re-export
+  // (`export { X }`) passes the binding on without rendering it.
   if (
-    (ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent)) &&
+    (ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isJsxAttribute(parent)) &&
     parent.name === node
   )
     return false;
+  if (ts.isExportSpecifier(parent)) return false;
   if (
     (ts.isParameter(parent) ||
       ts.isVariableDeclaration(parent) ||
@@ -243,29 +254,33 @@ const MODULE_SPELLINGS = [
 ];
 
 async function main() {
-  const { flags, positional } = parseArgs(process.argv.slice(2));
+  const { flags, positional } = parseArgs(process.argv.slice(2), {
+    valued: ['root'],
+  });
   const root = projectRoot(flags);
   const inventoryPath = positional[0];
-  if (!inventoryPath) throw new SetupError('pass the inventory JSON path');
+  const inventory = await readInventory(inventoryPath);
   const cfg = acceptanceConfig(root);
   const aliases = cfg.aliases ?? {};
-  const inventory = JSON.parse(
-    await readFile(path.resolve(inventoryPath), 'utf8'),
-  );
   const name = path.basename(inventoryPath);
-  if (inventory.shares === undefined) {
-    console.log(`${name} declares no "shares" block. Nothing to check.`);
-    return;
-  }
-  // Widths are the contact sheet's concern; any label passes here.
+  // Validated BEFORE the no-shares exit: a typo'd `"share"` key must fail, not read as "nothing to
+  // check". Widths are the contact sheet's concern, so any label a row names passes here.
   const labels = [
-    ...new Set(inventory.rows?.flatMap?.((r) => r.widths ?? []) ?? []),
+    ...new Set(
+      (Array.isArray(inventory?.rows) ? inventory.rows : []).flatMap((r) =>
+        Array.isArray(r?.widths) ? r.widths : [],
+      ),
+    ),
   ];
   const problems = inventoryErrors(inventory, labels);
   if (problems.length)
     throw new SetupError(
       `${name} is not checkable:\n  - ${problems.join('\n  - ')}`,
     );
+  if (inventory.shares === undefined) {
+    console.log(`${name} declares no "shares" block. Nothing to check.`);
+    return;
+  }
   const ts = await importFromProject(
     root,
     ['typescript'],

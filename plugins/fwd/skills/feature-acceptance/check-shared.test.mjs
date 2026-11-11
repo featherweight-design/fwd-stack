@@ -73,6 +73,24 @@ test('a property key, a property access or a shadowing name is not a use', () =>
   );
 });
 
+test('a re-export, a JSX attribute name or a member name is not a use', () => {
+  assert.equal(ask(IMP + '\nexport { Toolbar };'), false);
+  assert.equal(
+    ask(IMP + '\nexport const V = () => <Box Toolbar="a" />;'),
+    false,
+  );
+  assert.equal(
+    ask(IMP + '\nexport const o = { Toolbar() { return 1; } };'),
+    false,
+  );
+  assert.equal(ask(IMP + '\nexport class C { Toolbar = 1; }'), false);
+  // As a JSX attribute VALUE it is a use.
+  assert.equal(
+    ask(IMP + '\nexport const V = () => <Box slot={Toolbar} />;'),
+    true,
+  );
+});
+
 test('rejects a default import in both spellings, still sees a named one beside it', () => {
   assert.equal(ask('import Toolbar from "../ui/toolbar";' + USE), false);
   assert.equal(
@@ -258,6 +276,14 @@ test('CLI: no featureAcceptance block is a setup failure, exit 2', () => {
   const r = run(project({ config: null }), INV);
   assert.equal(r.status, 2);
   assert.match(r.stderr, /no "featureAcceptance" block/);
+});
+
+test('CLI: a malformed inventory fails even without shares; a typo is not "nothing to check"', () => {
+  const typo = { ...INV, share: INV.shares };
+  delete typo.shares;
+  const r = run(project(), typo);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown top-level key "share"/);
 });
 
 test('CLI: an inventory with no shares block has nothing to check', () => {

@@ -8,7 +8,7 @@
 // reports nothing: a gradient built from two tokens no palette has ever had renders as a void, and
 // TypeScript, the linter and jsdom all pass it. Two rules follow:
 //   - a read WITH a fallback, `var(--x, 3s)`, is a parameter with a default, not a miss;
-//   - a token a component declares on its own element is declared for that file's subtree only.
+//   - a token a component declares counts for reads in that same file only, never another file's.
 // Stylesheets are the one asymmetry: a rule selects by class and a component draws that element, so
 // a stylesheet may resolve against any component's declaration. The reverse does not hold.
 //
@@ -32,20 +32,33 @@ import {
   SetupError,
 } from './project.mjs';
 
-/** Comments out, so `// --ghost: the old name` declares nothing and `// var(--gone)` reads nothing. */
+/**
+ * Comments out, so `// --ghost: the old name` declares nothing and `// var(--gone)` reads nothing.
+ * Block comments become spaces (newlines kept, so line numbers survive). A `//` right after a
+ * colon, quote, backtick, `(`, `=` or word character is a URL or a path (`https://`,
+ * `src="//cdn/x.png"`, `url(//cdn)`), not a comment.
+ */
 export function stripComments(text) {
   return text
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+    .replace(/(^|[^:"'`(=\w/\\])\/\/[^\n]*/g, '$1');
 }
+
+// A token name: letters, digits, dashes and underscores.
+const NAME = '--[\\w-]+';
 
 /** `--x` left of a `:` (a CSS declaration or a quoted style key), and next/font's `variable: "--x"`. */
 export function declarationsIn(raw) {
   const text = stripComments(raw);
   const found = new Set();
-  for (const m of text.matchAll(/["']?(--[a-zA-Z0-9-]+)["']?\s*:/g))
+  // Not after a word character or dash: `.btn--primary:hover` is a class, not a declaration.
+  for (const m of text.matchAll(
+    new RegExp(`(?<![\\w-])["']?(${NAME})["']?\\s*:`, 'g'),
+  ))
     found.add(m[1]);
-  for (const m of text.matchAll(/variable:\s*["'](--[a-zA-Z0-9-]+)["']/g))
+  for (const m of text.matchAll(
+    new RegExp(`variable:\\s*["'](${NAME})["']`, 'g'),
+  ))
     found.add(m[1]);
   return found;
 }
@@ -58,7 +71,7 @@ export function declarationsIn(raw) {
 export function usedTokens(raw) {
   const used = [];
   for (const m of stripComments(raw).matchAll(
-    /var\(\s*(--[a-zA-Z0-9-]*)(\$\{([^}]*)\})?\s*(,)?/g,
+    /var\(\s*(--[\w-]*)(\$\{([^}]*)\})?\s*(,)?/g,
   )) {
     const [, stem, , expr, comma] = m;
     if (comma) continue;
@@ -67,7 +80,7 @@ export function usedTokens(raw) {
       if (!stem.endsWith('-')) used.push(stem);
       continue;
     }
-    for (const lit of expr.matchAll(/["'`]([A-Za-z0-9-]+)["'`]/g))
+    for (const lit of expr.matchAll(/["'`]([\w-]+)["'`]/g))
       used.push(`${stem}${lit[1]}`);
   }
   return used;
@@ -101,10 +114,7 @@ export function undeclaredIn(files, globals, stylesheets = new Set()) {
  * is no colour). A line carrying `fwd-allow-hex` is skipped.
  */
 export function hexColours(raw) {
-  // Comments blanked to spaces line by line, so line numbers survive.
-  const text = raw
-    .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const text = stripComments(raw);
   const rawLines = raw.split('\n');
   const found = [];
   text.split('\n').forEach((line, i) => {
@@ -123,7 +133,11 @@ const TEST_FILE =
 export async function filesMatching(root, patterns) {
   const out = new Set();
   for (const pattern of patterns)
-    for await (const f of glob(pattern, { cwd: root })) {
+    for await (const f of glob(pattern, {
+      cwd: root,
+      // Never walk an install: a root `**` would read every package.
+      exclude: (p) => path.basename(String(p?.name ?? p)) === 'node_modules',
+    })) {
       const p = f.split(path.sep).join('/');
       if (!TEST_FILE.test(p)) out.add(p);
     }
@@ -131,7 +145,10 @@ export async function filesMatching(root, patterns) {
 }
 
 async function main() {
-  const { flags } = parseArgs(process.argv.slice(2));
+  const { flags } = parseArgs(process.argv.slice(2), {
+    valued: ['root'],
+    switches: ['strict-hex'],
+  });
   const root = projectRoot(flags);
   const cfg = acceptanceConfig(root);
   // A string or a list of globs.

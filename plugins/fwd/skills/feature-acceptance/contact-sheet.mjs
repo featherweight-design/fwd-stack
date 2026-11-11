@@ -35,22 +35,38 @@ import {
   need,
   parseArgs,
   projectRoot,
+  readInventory,
   runTool,
   SetupError,
 } from './project.mjs';
 
 const T = 15_000;
 
-/** One step's verbs, in VERBS order. Page content is reached inside `scope`, never the shell. */
-async function runStep(page, step, { base, scope }) {
+/**
+ * One step's verbs, in VERBS order. Page content is reached inside `scope`, never the shell.
+ * Exported for its tests, which drive it with a stand-in page.
+ */
+export async function runStep(page, step, { base, scope, env = process.env }) {
   const onPage = (sel) =>
     (scope ? page.locator(scope).locator(sel) : page.locator(sel)).first();
   if (step.goto !== undefined) {
-    const url = `${base}${expand(step.goto, 'goto')}`;
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded' });
+    const asked = new URL(`${base}${expand(step.goto, 'goto', env)}`);
+    const response = await page.goto(asked.href, {
+      waitUntil: 'domcontentloaded',
+    });
     // An error page is a reached cell showing nothing: fail it rather than photograph it.
     if (response && response.status() >= 400)
       throw new Error(`goto ${step.goto}: HTTP ${response.status()}`);
+    // So is a redirect: to sign-in, to home, to another origin. Write the goto as the final path.
+    const landed = new URL(page.url());
+    const trim = (p) => p.replace(/(.)\/$/, '$1');
+    if (
+      landed.origin !== asked.origin ||
+      trim(landed.pathname) !== trim(asked.pathname)
+    )
+      throw new Error(
+        `goto ${step.goto} landed on ${landed.origin === asked.origin ? landed.pathname : landed.origin + landed.pathname}`,
+      );
   }
   if (step.store !== undefined)
     await page.evaluate((items) => {
@@ -60,7 +76,7 @@ async function runStep(page, step, { base, scope }) {
   if (step.click !== undefined) await onPage(step.click).click({ timeout: T });
   if (step.clickRole !== undefined) {
     const name = new RegExp(
-      expand(step.name, `clickRole ${step.clickRole}`, process.env, {
+      expand(step.name, `clickRole ${step.clickRole}`, env, {
         forRegex: true,
       }),
     );
@@ -71,7 +87,7 @@ async function runStep(page, step, { base, scope }) {
       .click({ timeout: T });
   }
   if (step.fill !== undefined)
-    await onPage(step.fill).fill(expand(step.text, `fill ${step.fill}`), {
+    await onPage(step.fill).fill(expand(step.text, `fill ${step.fill}`, env), {
       timeout: T,
     });
   if (step.wait !== undefined)
@@ -82,7 +98,13 @@ async function runStep(page, step, { base, scope }) {
       .first()
       .waitFor({ state: 'visible', timeout: T });
   if (step.hover !== undefined) await onPage(step.hover).hover({ timeout: T });
-  if (step.back) await page.goBack();
+  if (step.back) {
+    // goBack resolves null when there is nowhere to go: a no-op that would photograph this page.
+    const before = page.url();
+    await page.goBack();
+    if (page.url() === before)
+      throw new Error('back: there was no page to go back to');
+  }
   if (step.offline !== undefined) await page.context().setOffline(step.offline);
   if (step.pressKey !== undefined) await page.keyboard.press(step.pressKey);
   if (step.settle !== undefined) await page.waitForTimeout(step.settle);
@@ -112,13 +134,14 @@ async function runStep(page, step, { base, scope }) {
 }
 
 async function main() {
-  const { flags, positional } = parseArgs(process.argv.slice(2));
+  const { flags, positional } = parseArgs(process.argv.slice(2), {
+    valued: ['root', 'base'],
+  });
   const root = projectRoot(flags);
   const inventoryPath = positional[0];
-  if (!inventoryPath) throw new SetupError('pass the inventory JSON path');
+  const inventory = await readInventory(inventoryPath);
   const cfg = acceptanceConfig(root);
 
-  if (flags.base === true) throw new SetupError('--base takes a URL');
   const base = (
     flags.base ??
     process.env.CONTACT_SHEET_BASE ??
@@ -127,9 +150,6 @@ async function main() {
   const baseError = baseUrlError(base);
   if (baseError) throw new SetupError(baseError);
 
-  const inventory = JSON.parse(
-    await readFile(path.resolve(inventoryPath), 'utf8'),
-  );
   const widths =
     inventory.widths ?? need(cfg, 'widths', 'the phone and desktop viewports');
   const widthProblems = widthErrors(
@@ -145,6 +165,16 @@ async function main() {
       `${inventoryPath} is not runnable:\n  - ${problems.join('\n  - ')}`,
     );
   const scope = cfg.pageScope ?? 'main';
+  let cookies = [];
+  try {
+    cookies = (inventory.cookies ?? []).map((c) => ({
+      name: c.name,
+      value: expand(c.value, `cookie ${c.name}`),
+      url: base,
+    }));
+  } catch (error) {
+    throw new SetupError(error.message);
+  }
 
   // Settled before a browser starts, so a misconfigured project fails in a second, not a minute.
   let signIn = null;
@@ -184,16 +214,18 @@ async function main() {
         deviceScaleFactor: 1,
         hasTouch: size.touch === true,
       });
-      if (inventory.cookies)
-        await context.addCookies(
-          inventory.cookies.map((c) => ({
-            name: c.name,
-            value: expand(c.value, `cookie ${c.name}`),
-            url: base,
-          })),
-        );
+      if (cookies.length) await context.addCookies(cookies);
       const page = await context.newPage();
-      if (signIn) await signIn(page, { baseUrl: base });
+      // A failed sign-in fails every cell at this width, named, and the run goes on to the next.
+      let signInFailed = '';
+      if (signIn)
+        await Promise.resolve()
+          .then(() => signIn(page, { baseUrl: base }))
+          .catch((error) => {
+            signInFailed = `sign-in failed: ${String(error?.message ?? error)
+              .split('\n')[0]
+              .slice(0, 140)}`;
+          });
       for (const row of inventory.rows) {
         // A surface that exists at one width only says so; the other width is not a failed cell.
         if (row.widths && !row.widths.includes(size.label)) {
@@ -203,18 +235,19 @@ async function main() {
         const file = path.join(outDir, `${row.id}-${size.label}.png`);
         // A shot left by an earlier run must not stand in for a cell that failed this time.
         await rm(file, { force: true });
-        let note = '';
-        try {
-          for (const step of row.steps)
-            await runStep(page, step, { base, scope });
-          await page.screenshot({
-            path: file,
-            fullPage: row.fullPage ?? inventory.fullPage ?? false,
-          });
-        } catch (error) {
-          note = String(error).split('\n')[0].slice(0, 160);
-          await page.screenshot({ path: file }).catch(() => {});
-        }
+        let note = signInFailed;
+        if (!note)
+          try {
+            for (const step of row.steps)
+              await runStep(page, step, { base, scope });
+            await page.screenshot({
+              path: file,
+              fullPage: row.fullPage ?? inventory.fullPage ?? false,
+            });
+          } catch (error) {
+            note = String(error).split('\n')[0].slice(0, 160);
+            await page.screenshot({ path: file }).catch(() => {});
+          }
         // A row that went offline must not leave the next one photographing an offline app.
         await context.setOffline(false);
         shots.push({ label: row.label, size: size.label, file, note });

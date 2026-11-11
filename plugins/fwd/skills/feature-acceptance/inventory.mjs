@@ -118,10 +118,15 @@ export function inventoryErrors(inventory, widthLabels) {
     }
     if (!Array.isArray(row.steps) || row.steps.length === 0)
       errors.push(`${at}: "steps" must be a non-empty array`);
-    else
+    else {
       row.steps.forEach((step, j) =>
         errors.push(...stepErrors(step, `${at} step ${j}`)),
       );
+      // Rows share one page per width, so a row that does not load its own route photographs
+      // whatever the previous row (or a failed one) left behind.
+      if (row.steps[0]?.goto === undefined)
+        errors.push(`${at}: the first step loads the row's route with "goto"`);
+    }
   });
   const cookies = inventory.cookies;
   if (
@@ -265,7 +270,15 @@ export function baseUrlError(raw) {
   }
   if (url.protocol !== 'https:')
     return `${raw} is not https: point the sheet at a deployed URL such as staging`;
-  const host = url.hostname.replace(/^\[|\]$/g, '');
+  // Brackets off, trailing dots off (`localhost.` is localhost), lowercased.
+  const host = url.hostname
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '')
+    .toLowerCase();
+  // An IPv6 literal is refused outright: a deployed build has a hostname, and the mapped and
+  // link-local forms (`::ffff:7f00:1`, `fe80::`) are too many to list.
+  if (host.includes(':'))
+    return `${raw} is an IP address: point the sheet at the deployed build's hostname`;
   const local =
     host === 'localhost' ||
     host.endsWith('.localhost') ||
@@ -273,6 +286,8 @@ export function baseUrlError(raw) {
     host === '::1' ||
     host === '0.0.0.0' ||
     /^127\./.test(host) ||
+    /^0\./.test(host) ||
+    /^169\.254\./.test(host) ||
     /^10\./.test(host) ||
     /^192\.168\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host);

@@ -50,6 +50,46 @@ test('usedTokens: both branches of an interpolation; nothing it cannot resolve',
   assert.deepEqual(usedTokens('`var(--${compute()})`'), []);
 });
 
+test('usedTokens and declarationsIn: underscores are part of the name', () => {
+  // `var(--surface_2)` read as `--surface` would pass whenever `--surface` exists.
+  assert.deepEqual(usedTokens('color: var(--surface_2);'), ['--surface_2']);
+  assert.ok(declarationsIn('--my_x: 1;').has('--my_x'));
+  assert.deepEqual(
+    undeclaredIn(
+      [{ path: 'a.tsx', source: 'var(--surface_2)' }],
+      ['--surface: #000;'],
+    ),
+    [{ file: 'a.tsx', token: '--surface_2' }],
+  );
+});
+
+test('declarationsIn: a BEM modifier before a colon is a class, not a declaration', () => {
+  assert.deepEqual(
+    [...declarationsIn('.btn--primary:hover { color: red; }')],
+    [],
+  );
+  assert.deepEqual(
+    [...declarationsIn('const c = { "card--active": true };')],
+    [],
+  );
+});
+
+test('a // inside a string or URL is not a comment', () => {
+  const source =
+    '<img src="//cdn.x/a.png" style={{ background: "var(--ghost)" }} />';
+  assert.deepEqual(usedTokens(source), ['--ghost']);
+  assert.deepEqual(
+    usedTokens('a { background: url(//cdn.x/a.png) var(--bg); }'),
+    ['--bg'],
+  );
+  assert.deepEqual(
+    hexColours('<img src="//cdn.x/a.png" style={{ color: "#ff0000" }} />').map(
+      (h) => h.hex,
+    ),
+    ['#ff0000'],
+  );
+});
+
 test('declarationsIn: CSS, quoted style keys and next/font variables; not comments', () => {
   assert.ok(declarationsIn('--fg: #fff;').has('--fg'));
   assert.ok(declarationsIn('{ "--row-bg": "var(--surface)" }').has('--row-bg'));
@@ -196,6 +236,15 @@ test('CLI: a hex colour is reported and passes, unless hexFails or --strict-hex'
       .status,
     1,
   );
+});
+
+test('CLI: an unknown flag is a setup failure, not a soft pass', () => {
+  const r = run(
+    project(TOKENS, { 'src/theme.css': ':root { --fg: #000; }' }),
+    '--strict-hx',
+  );
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unknown flag --strict-hx/);
 });
 
 test('CLI: missing config, or globs matching nothing, is a setup failure, exit 2', () => {

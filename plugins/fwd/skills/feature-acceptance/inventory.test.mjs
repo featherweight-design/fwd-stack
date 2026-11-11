@@ -71,9 +71,20 @@ test('goto is a path, settle whole milliseconds, scroll a number or "bottom"', (
   );
   assert.deepEqual(
     errs(
-      inv({ rows: [row({ steps: [{ scroll: 'bottom' }, { scroll: 400 }] })] }),
+      inv({
+        rows: [
+          row({ steps: [{ goto: '/', scroll: 'bottom' }, { scroll: 400 }] }),
+        ],
+      }),
     ),
     [],
+  );
+});
+
+test("a row's first step loads its route: rows share one page per width", () => {
+  assert.match(
+    errs(inv({ rows: [row({ steps: [{ click: 'button' }] })] })).join(),
+    /first step loads the row's route/,
   );
 });
 
@@ -198,6 +209,12 @@ test('the base URL is a deployed https origin, never local', () => {
     'https://[::1]:3000',
     'https://app.local',
     'https://0.0.0.0',
+    'https://localhost.',
+    'https://LOCALHOST',
+    'https://[::ffff:127.0.0.1]',
+    'https://[::]',
+    'https://[fe80::1]',
+    'https://169.254.1.1',
   ])
     assert.ok(baseUrlError(local), local);
   assert.match(baseUrlError('http://staging.example.com'), /not https/);
