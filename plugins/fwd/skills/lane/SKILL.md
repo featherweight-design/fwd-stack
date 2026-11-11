@@ -72,6 +72,9 @@ before anything else: its rules add to these and win where they conflict.
   (`pr<N>-body.md`, `<branch>-notes.md`), never a generic name, since subagents in one session
   share one scratchpad. Before a `gh pr edit --body-file`, read the file back and check it is this
   PR's body.
+- **Leave no worktree behind.** When a task ends (its PR merged, or the lane closes or rotates),
+  stop your dev servers and `git worktree remove` your own worktrees, agent ones under
+  `.claude/worktrees/` included. Never keep a worktree for a merged branch; the branch itself stays.
 - **Report state truthfully.** A "don't merge" from the orchestrator can arrive after you merged.
   Say what happened; do not undo it unasked.
 

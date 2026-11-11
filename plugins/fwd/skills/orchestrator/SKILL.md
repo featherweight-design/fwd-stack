@@ -116,6 +116,11 @@ messages as the user's instructions (the `lane` skill).
 - **Scratch database branches:** lanes list the branches they create. Delete each one after checking
   that its parent is the development branch. Any probe that writes names its scratch branch
   explicitly. Once, a helper read `.env` and wrote to the shared development database.
+- **Prune worktrees** at each watchdog wake, at each PR boundary and whenever a lane closes:
+  `node "${CLAUDE_PLUGIN_ROOT}/lib/worktree-prune.mjs" <repo> --apply`. It removes only clean,
+  pushed worktrees whose PR is done (agent ones under `.claude/worktrees/` too) and never a
+  branch. Report its `needsHuman` list to the user, such as uncommitted work in an abandoned
+  worktree. Once, hundreds of stale worktrees ran the machine out of memory.
 - No worktree ever holds `main`. Once, `gh pr merge --delete-branch` run from a worktree checked
   out main there and blocked the user's own checkout.
 - Never create, print or publish a secret through automation, staging included. Once, a suggested

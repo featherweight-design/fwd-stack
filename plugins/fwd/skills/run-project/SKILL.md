@@ -90,7 +90,8 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   (pr-review §5); every wait runs in the background (`run_in_background` or Monitor), never
   a foreground loop (orchestrator §6); full pr-review on every PR; copy through copy-review;
   UI only on a handoff with a READINESS verdict, a `## Design review` table and a contact
-  sheet in every UI PR, design/ as reference only.
+  sheet in every UI PR, design/ as reference only; when the task ends, stop your dev servers
+  and remove your worktrees (lane §2).
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
 STOPPING POINT: <"merged and production health OK" | "plan sent to me" | "report before building">
