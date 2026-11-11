@@ -15,7 +15,7 @@ STATE=${PLUGIN%%$'\t'*}
 ROOT=${PLUGIN#*$'\t'}
 check "plugin fwd@fwd-stack installed and enabled" '[ "$STATE" = enabled ]'
 check "stable path points at the installed copy" '[ -n "$ROOT" ] && [ "$(cd "$LINK" && pwd -P)" = "$(cd "$ROOT" && pwd -P)" ]'
-check "installed copy registers its hooks" 'grep -q "gate-hook.sh" "$ROOT/hooks/hooks.json" && grep -q "neon-prod-guard" "$ROOT/hooks/hooks.json" && grep -q "autonomous-guard" "$ROOT/hooks/hooks.json" && grep -q "secret-print-guard" "$ROOT/hooks/hooks.json"'
+check "installed copy registers its hooks" 'grep -q "gate-hook.sh" "$ROOT/hooks/hooks.json" && grep -q "neon-prod-guard" "$ROOT/hooks/hooks.json" && grep -q "autonomous-guard" "$ROOT/hooks/hooks.json" && grep -q "secret-print-guard" "$ROOT/hooks/hooks.json" && grep -q "local-test-guard" "$ROOT/hooks/hooks.json"'
 check "settings.json is valid JSON" '[ ! -f "$CFG/settings.json" ] || python3 -c "import json,sys;json.load(open(sys.argv[1]))" "$CFG/settings.json"'
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 check "no user-scope copies of the plugin's hooks remain" '[ ! -f "$CFG/settings.json" ] || python3 "$HERE/strip-hooks.py" --check "$CFG/settings.json"'
@@ -35,6 +35,10 @@ check "Neon guard denies a production write" 'grep -q "\"deny\"" <<<"$NEON_OUT"'
 # The secret-print guard denies an environment dump.
 SECRET_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' | node "$ROOT/hooks/secret-print-guard.mjs" 2>&1)
 check "secret-print guard denies an environment dump" 'grep -q "\"deny\"" <<<"$SECRET_OUT"'
+
+# The local-test guard denies a local test run.
+TEST_OUT=$(printf '%s' '{"tool_name":"Bash","tool_input":{"command":"pnpm vitest run"}}' | node "$ROOT/hooks/local-test-guard.mjs" 2>&1)
+check "local-test guard denies a local test run" 'grep -q "\"deny\"" <<<"$TEST_OUT"'
 
 # The merge gate denies a command it cannot attribute (a fail-closed parse; no network needed).
 GATE_OUT=$(printf '%s' '{"tool_input":{"command":"gh pr merge $PR --squash"}}' | bash "$ROOT/skills/pr-review/gate-hook.sh" 2>&1)

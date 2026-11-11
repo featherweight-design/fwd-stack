@@ -105,6 +105,8 @@ messages as the user's instructions (the `lane` skill).
   out main there and blocked the user's own checkout.
 - Never create, print or publish a secret through automation, staging included. Once, a suggested
   keygen command printed a private key into the transcript.
+- Lanes run typecheck and lint only, never tests or a production build (`pr-review` §5); the
+  local-test guard hook enforces it, and every brief carries it in STANDING RULES.
 
 ## 6 · Never let a lane go quiet
 

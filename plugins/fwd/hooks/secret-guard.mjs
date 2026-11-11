@@ -318,9 +318,9 @@ export function parseCommands(command) {
 // ---------------------------------------------------------------------------------------------
 // Shared helpers
 
-const basename = (w) => w.slice(w.lastIndexOf('/') + 1);
+export const basename = (w) => w.slice(w.lastIndexOf('/') + 1);
 const isAssignment = (w) => /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/.test(w);
-const isOption = (w) => w.length > 1 && w.startsWith('-');
+export const isOption = (w) => w.length > 1 && w.startsWith('-');
 
 const TEMPLATE_SUFFIX = /\.(example|sample|template|dist)$/;
 // A .env-style file: basename starts with `.env` (`.env`, `.env.local`, `.envrc`, `.env*`).
@@ -410,7 +410,7 @@ const KEYWORDS = new Set([
 // Splits the leading wrappers off a command. Returns { words } for the command that actually
 // runs, { envDump: true } for `env` with no command, { skip: true } for a lookup like
 // `command -v`, or { nested: string } for `env -S` and `watch`.
-function unwrap(words) {
+export function unwrap(words) {
   let w = words.slice();
   for (;;) {
     while (w.length && (isAssignment(w[0]) || KEYWORDS.has(w[0]))) {
@@ -520,7 +520,7 @@ function unwrap(words) {
 // ---------------------------------------------------------------------------------------------
 // Rules
 
-const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
+export const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'fish']);
 
 // Text tools that print a file's contents (or most of it).
 const READERS = new Set([
