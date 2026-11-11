@@ -110,6 +110,32 @@ const DENY = [
   ['npm run build', /npm run build/],
   ['yarn run build', /yarn run build/],
   ['yarn build', /yarn build/],
+  // dependency-only builds' neighbours: no filter, the app itself, or mixed filters
+  ['pnpm turbo run build --filter=@concert-crawl/web', /turbo build/],
+  ['turbo run build --filter=@concert-crawl/web...', /turbo build/],
+  ['turbo run build --filter=...@concert-crawl/web', /turbo build/],
+  ['turbo run build --filter=...^@concert-crawl/ui', /turbo build/],
+  ['turbo run build --filter=./apps/web', /turbo build/],
+  ['turbo run build --filter=!@concert-crawl/web^...', /turbo build/],
+  ['turbo run build --filter=@concert-crawl/web...^...', /turbo build/],
+  ['turbo run build --filter=[HEAD^1]^...', /turbo build/],
+  ['turbo run build --filter=^...', /turbo build/],
+  ['turbo run build -F', /turbo build/],
+  ['turbo run build --filter=web^... --filter=web', /turbo build/],
+  ['turbo run build --filter=web^... --affected', /turbo build/],
+  ['turbo run build test --filter=web^...', /turbo test/],
+  ['turbo run web#build --filter=web^...', /turbo web#build/],
+  ['turbo run build -- --filter=web^...', /turbo build/],
+  ['pnpm --filter web build', /pnpm build/],
+  ['pnpm --filter web... build', /pnpm build/],
+  ['pnpm --filter web^... --filter web build', /pnpm build/],
+  ['pnpm -w --filter web^... build', /pnpm build/],
+  ['pnpm -r build', /pnpm build/],
+  ['pnpm --filter web^... test', /pnpm test/],
+  ['pnpm build --filter web^...', /pnpm build/],
+  ['npm --workspace web^... run build', /npm run build/],
+  ['pnpm --filter web^... exec next build', /next build/],
+  ['pnpm --filter web^... exec vite build', /vite build/],
   // nesting and wrappers
   ['echo start; pnpm test', /pnpm test/],
   ['false || pnpm test', /pnpm test/],
@@ -183,6 +209,23 @@ const ALLOW = [
   'npm --tag build publish',
   'turbo run lint -- build',
   'turbo gen workspace --name build',
+  // a build of the app's dependencies only, which a fresh worktree needs before typecheck
+  'pnpm turbo run build --filter=@concert-crawl/web^...',
+  'pnpm turbo run build --filter @concert-crawl/web^...',
+  'turbo run build -F @concert-crawl/web^...',
+  'turbo run build -F=@concert-crawl/web^...',
+  'turbo build --filter="@concert-crawl/web^..."',
+  "turbo run build --filter '@concert-crawl/web^...'",
+  'turbo run build --filter=./apps/web^...',
+  'turbo run build --filter={./apps/web}^...',
+  'turbo run build --filter=web^... --filter=api^...',
+  'turbo run build:packages --filter=web^...',
+  'pnpm turbo run build --filter=@concert-crawl/web^... && pnpm --filter @concert-crawl/web typecheck',
+  'pnpm --filter @concert-crawl/web^... build',
+  'pnpm --filter=@concert-crawl/web^... run build',
+  'pnpm -F "@concert-crawl/web^..." build',
+  'pnpm -r --filter web^... build',
+  'pnpm --filter-prod web^... build',
   'command -v vitest',
   'which jest',
   '',
@@ -195,6 +238,7 @@ test('denies a test run or production build in any segment', () => {
     assert.match(reason, pattern, JSON.stringify(command));
     assert.match(reason, /typecheck and lint only/);
     assert.match(reason, /pr-review §5/);
+    assert.match(reason, /--filter=<app>\^\.\.\.` \(allowed\)/);
   }
 });
 

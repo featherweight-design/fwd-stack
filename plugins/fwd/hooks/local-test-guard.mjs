@@ -13,6 +13,11 @@
 //   - a turbo task named `test`, `test:*`, `build` or `build:*` (`web#build` too);
 //   - `next build` or `vite build`.
 //
+// One build is allowed: a turbo build, or a pnpm `build` script, whose every filter selects only
+// a package's dependencies (`--filter=<app>^...`, `-F <app>^...`). It builds the workspace
+// packages' dist output a fresh worktree needs before typecheck can resolve them, and never the
+// app. A build with no filter, or with any filter that can select the app itself, is denied.
+//
 // The command is split the way secret-guard.mjs splits it (pipes, lists, newlines, subshells,
 // `$(...)`, backticks), wrappers such as `timeout`, `env` and `xargs` are peeled off, and
 // `bash -c`, `eval`, `watch` and shell heredocs are parsed again. Quoted text is data and only the
@@ -71,6 +76,7 @@ const PM_VALUE = new Set([
   '--access',
   '--userconfig',
   '--cache',
+  '--filter-prod',
 ]);
 // The first positional of a command, skipping options. `value` lists options that take the
 // next word as their value.
@@ -163,7 +169,48 @@ const TURBO_OTHER = new Set([
 ]);
 
 const LOCAL =
-  'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §5).';
+  'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §5). ' +
+  'To typecheck a fresh worktree, build its dependencies with `turbo run build --filter=<app>^...` (allowed).';
+
+// A filter selector that picks only a package's dependencies and never the package: `X^...` in
+// turbo and pnpm. `X`, `X...`, `...X`, `...^X` (dependents), `!X` (an exclusion, so everything
+// else) and git ranges (`[ref]`) can all select the app.
+function dependencyOnly(selector) {
+  const m = /^(.+)\^\.\.\.$/.exec(selector);
+  return !!m && !/^!|\.\.\.|\^|\[/.test(m[1]);
+}
+
+// The values of the filter options among `args` (`--filter X`, `--filter=X`, `-F X`, `-F=X`),
+// stopping at `--`. An option missing its value yields '' so the filter fails the check.
+function filterValues(args, names) {
+  const out = [];
+  for (let k = 0; k < args.length && args[k] !== '--'; k++) {
+    const a = args[k];
+    if (names.has(a)) out.push(args[++k] ?? '');
+    else {
+      const eq = a.indexOf('=');
+      if (eq > 0 && names.has(a.slice(0, eq))) out.push(a.slice(eq + 1));
+    }
+  }
+  return out;
+}
+
+// True when a build is filtered to dependencies only: at least one filter, and every filter is
+// dependency-only.
+const dependencyBuild = (filters) =>
+  filters.length > 0 && filters.every(dependencyOnly);
+
+const TURBO_FILTER = new Set(['--filter', '-F']);
+const PNPM_FILTER = new Set(['--filter', '-F', '--filter-prod']);
+const BUILD = /^build(:.*)?$/;
+
+// `pnpm --filter <app>^... build`: a build script run only in the app's dependencies. `opts` are
+// the options before the script name; a workspace-root flag adds the root package, so it denies.
+function pnpmDependencyBuild(name, script, opts) {
+  if (name !== 'pnpm' || !BUILD.test(script)) return false;
+  if (opts.some((a) => a === '-w' || a === '--workspace-root')) return false;
+  return dependencyBuild(filterValues(opts, PNPM_FILTER));
+}
 
 // The reason a package-manager command runs tests or a build, or null.
 function packageManagerRule(name, args, depth) {
@@ -183,13 +230,23 @@ function packageManagerRule(name, args, depth) {
     if (cmd === 'run' || cmd === 'run-script') {
       const s = firstPositional(after, value);
       if (s === -1) return null;
-      if (SCRIPT.test(after[s]))
+      if (SCRIPT.test(after[s])) {
+        if (
+          pnpmDependencyBuild(name, after[s], [
+            ...rest.slice(0, k),
+            ...after.slice(0, s),
+          ])
+        )
+          return null;
         return `\`${name} run ${after[s]}\` runs a test or build script.`;
+      }
       // yarn and bun `run` a binary when no script has the name.
       if (name !== 'npm' && RUNNABLE.has(basename(after[s])))
         return judgeWords(after.slice(s), depth + 1);
       return null;
     }
+    if (SCRIPT.test(cmd) && pnpmDependencyBuild(name, cmd, rest.slice(0, k)))
+      return null;
     if (NPM_TEST.has(cmd) || SCRIPT.test(cmd))
       return `\`${name} ${cmd}\` runs a test or build script.`;
     // yarn workspace <name> <cmd>, yarn workspaces foreach <cmd>
@@ -277,7 +334,14 @@ function judgeWords(words, depth) {
     }
     // Only `turbo run`, `turbo watch` and the bare `turbo <task>` run tasks.
     if (TURBO_OTHER.has(pos[0])) return null;
-    const task = pos.find((a) => TURBO_TASK.test(a));
+    const tasks = pos.filter((a) => TURBO_TASK.test(a));
+    if (!tasks.length) return null;
+    // Builds of plain task names filtered to dependencies only are allowed; `web#build` names
+    // a package directly and `--affected` adds packages of its own, so neither qualifies.
+    const deps =
+      !args.includes('--affected') &&
+      dependencyBuild(filterValues(args, TURBO_FILTER));
+    const task = deps ? tasks.find((t) => !BUILD.test(t)) : tasks[0];
     return task ? `\`turbo ${task}\` runs a test or build task.` : null;
   }
   if (
