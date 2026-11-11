@@ -112,7 +112,18 @@ node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> 
   machine must be https.
 
 A cell fails on a step that finds nothing, an HTTP error, a redirect away from the asked path (a
-sign-in wall, a home fallback) or a `back` with nowhere to go. It exits 1 when any cell did not
+sign-in wall, a home fallback), a `back` with nowhere to go, or a theme the page did not draw. A
+row that photographs an error page or a redirect on purpose (a 404, a signed-out wall) says so
+on its `goto` with `expectStatus` or `expectRedirect`; the default stays strict. Service workers
+are blocked in every context, so a cached shell never stands in for the route.
+
+**Nothing it prints or writes carries a `${VAR}` value.** Every environment value an inventory
+names, and every variable whose name marks it a credential (`TOKEN`, `SECRET`, `PASSWORD`,
+`INVITE`, `COOKIE`, `CREDENTIAL`, `API_KEY`, `PRIVATE`; six characters or more), is redacted (as
+typed, URL-encoded and regex-escaped) from the console (the sign-in module's own output
+included), failure notes, the sheet and any uncaught error, before a note is cut to length. File names come from row ids and
+labels, never from expanded values. The screenshots themselves are pixels: a page that displays
+a token shows it, so keep such pages off the sheet or out of the PR. It exits 1 when any cell did not
 reach its surface or nothing was photographed, and 2 when it cannot run (no project setup, a
 malformed inventory, an unknown flag, Playwright missing). Adding a feature means
 adding an inventory, never another script.
@@ -186,21 +197,22 @@ shell a step must avoid, and where the contact sheet goes in a PR.
 
 **`featureAcceptance` in `.claude/fwd.json`** (read by the tools):
 
-| Field             | Required by                 | Meaning                                                                                                                                                                    |
-| ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`         | contact sheet               | The origin to photograph by default: the local dev server (`http://localhost:3000`) for pre-PR sheets. `--base` or `CONTACT_SHEET_BASE` override it (staging for audits).  |
-| `productionUrl`   | contact sheet               | Optional. The production origin, or a list of every production origin (apex, `www`, other domains); each is refused as a base.                                             |
-| `widths`          | contact sheet               | `[{ "label": "phone", "width": 390, "height": 844 }, { "label": "desktop", "width": 1300, "height": 900 }]`; `touch: true` optional                                        |
-| `signIn`          | contact sheet               | Project-relative module exporting `signIn(page, { baseUrl })`; throws on failure. Unneeded if every inventory is `signedOut`.                                              |
-| `pageScope`       | contact sheet               | Selector page content lives in (default `main`), so a step never matches the app shell. `""` for none.                                                                     |
-| `inventories`     | agents                      | Folder of inventory JSON files, e.g. `docs/superpowers/inventories`.                                                                                                       |
-| `out`             | contact sheet               | Output folder (default `contact-sheets`, gitignore it). One subfolder per inventory.                                                                                       |
-| `packageDir`      | contact sheet, check-shared | A folder, or a list searched in order, whose `node_modules` has Playwright and TypeScript (a monorepo's apps, e.g. `["apps/e2e", "apps/web"]`). The root is searched last. |
-| `aliases`         | check-shared                | Import aliases to project-relative folders, e.g. `{ "@/": "src/" }`.                                                                                                       |
-| `tokens.declare`  | check-tokens                | Globs of theme files; every `--x:` there is declared for the whole app.                                                                                                    |
-| `tokens.read`     | check-tokens                | Globs whose `var(--x)` reads must resolve (test files are skipped).                                                                                                        |
-| `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                                                       |
-| `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                                                                      |
+| Field             | Required by                 | Meaning                                                                                                                                                                          |
+| ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`         | contact sheet               | The origin to photograph by default: the local dev server (`http://localhost:3000`) for pre-PR sheets. `--base` or `CONTACT_SHEET_BASE` override it (staging for audits).        |
+| `productionUrl`   | contact sheet               | Optional. The production origin, or a list of every production origin (apex, `www`, other domains); each is refused as a base.                                                   |
+| `widths`          | contact sheet               | `[{ "label": "phone", "width": 390, "height": 844 }, { "label": "desktop", "width": 1300, "height": 900 }]`; `touch: true` optional                                              |
+| `themes`          | contact sheet               | Optional. The sheet is photographed once per theme, each in a fresh context; `dataTheme` required (see the inventory's `themes`). Without it every cell draws the default theme. |
+| `signIn`          | contact sheet               | Project-relative module exporting `signIn(page, { baseUrl })`; throws on failure. Unneeded if every inventory is `signedOut`.                                                    |
+| `pageScope`       | contact sheet               | Selector page content lives in (default `main`), so a step never matches the app shell. `""` for none.                                                                           |
+| `inventories`     | agents                      | Folder of inventory JSON files, e.g. `docs/superpowers/inventories`.                                                                                                             |
+| `out`             | contact sheet               | Output folder (default `contact-sheets`, gitignore it). One subfolder per inventory.                                                                                             |
+| `packageDir`      | contact sheet, check-shared | A folder, or a list searched in order, whose `node_modules` has Playwright and TypeScript (a monorepo's apps, e.g. `["apps/e2e", "apps/web"]`). The root is searched last.       |
+| `aliases`         | check-shared                | Import aliases to project-relative folders, e.g. `{ "@/": "src/" }`.                                                                                                             |
+| `tokens.declare`  | check-tokens                | Globs of theme files; every `--x:` there is declared for the whole app.                                                                                                          |
+| `tokens.read`     | check-tokens                | Globs whose `var(--x)` reads must resolve (test files are skipped).                                                                                                              |
+| `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                                                             |
+| `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                                                                            |
 
 The project installs Playwright (and its Chromium) and TypeScript itself; the kit adds no
 dependency. The sign-in module reads its credentials from the environment and never prints them.
@@ -232,8 +244,27 @@ both validate it, and refuse it rather than run part of it.
       "steps": [
         { "goto": "/projects", "wait": "[data-toolbar]" },
         { "clickRole": "button", "name": "^Filter" },
-        { "waitDialog": "Filters" }
+        { "waitDialog": "^Filters$" }
       ]
+    },
+    {
+      "id": "projects-feed-down",
+      "label": "/projects, feed API failing",
+      "view": "src/app/projects/view.tsx",
+      "steps": [
+        {
+          "route": "**/api/projects",
+          "status": 503,
+          "body": { "error": "down" }
+        },
+        { "goto": "/projects", "wait": "[data-error]" }
+      ]
+    },
+    {
+      "id": "not-found",
+      "label": "an unknown project, 404 page",
+      "view": "src/app/projects/view.tsx",
+      "steps": [{ "goto": "/projects/nope", "expectStatus": 404, "wait": "h1" }]
     }
   ]
 }
@@ -241,19 +272,44 @@ both validate it, and refuse it rather than run part of it.
 
 - **Top level:** `feature` (required, the sheet's title), `rows` (required, non-empty), and
   optionally `note`, `out`, `signedOut` (photograph with no sign-in), `fullPage`, `widths` (replaces
-  the project's for this inventory), `cookies` (`[{ "name", "value" }]`), `shares`.
+  the project's for this inventory), `themes` (replaces the project's), `cookies`
+  (`[{ "name", "value" }]`), `shares`.
+- **`themes`** (here or in `featureAcceptance`): `[{ "label", "dataTheme", "cookies"?,
+"storage"?, "colorScheme"? }]`. Each theme is a pass of the whole sheet in a fresh context;
+  files are `<row>-<width>-<theme>.png`. `cookies` and `storage` (localStorage, written before the
+  page's own scripts on every navigation) select it the way the app reads it; `colorScheme` is
+  the emulated `prefers-color-scheme` (`light`, `dark`, `no-preference`). A theme must set at
+  least one of the three, and its values are literal (no `${VAR}`). `dataTheme` is required: it
+  is read back from `<html data-theme>` after every row and fails the cell when the page drew
+  something else, so a typo'd key, or a signed-in user's saved theme overriding the local one,
+  never photographs the default under this theme's name. Every theme repeats the sign-in and
+  every row, so a row that spends something (a single-use invite) belongs in a theme-less
+  inventory.
 - **A row:** `id` (lowercase, dashes; names the file), `label` (what the cell shows), `steps`
   (non-empty, the first with a `goto`: rows share one page per width, so a row that does not load
   its own route photographs what the last row left), and optionally `view`, `binding`, `widths` (the labels it exists at; the others are
   skipped, not failed), `fullPage`.
-- **Steps** are objects of verbs, run in this order within a step: `goto` (a path), `store`
-  (localStorage), `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `waitDialog` (a
-  dialog's accessible name), `hover`, `back`, `offline`, `pressKey`, `settle` (ms), `scrollTo`,
-  `scroll` (pixels or `"bottom"`). Put verbs that must run in another order in separate steps.
-  Selectors are scoped to `pageScope`; `waitDialog` is not, since dialogs portal outside it. An
-  unknown verb is an error, never a step that silently does nothing.
-- `${VAR}` in `goto`, `text`, `name` and cookie values comes from the environment, so no inventory
-  commits one account's ids. A missing variable fails the cell.
+- **Steps** are objects of verbs, run in this order within a step: `route` + `status` and/or
+  `body`, `goto` (a path) with optional `expectStatus` / `expectRedirect`, `store` (localStorage),
+  `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `waitDialog` (a regex on the
+  dialog's accessible name, like `name`: `^Filters$` for an exact match; before 0.1.30 it was
+  exact, so anchor the names older inventories wrote), `hover`, `back`,
+  `offline`, `pressKey`, `settle` (ms), `scrollTo`, `scroll` (pixels or `"bottom"`). Put verbs that
+  must run in another order in separate steps. Selectors are scoped to `pageScope`; `waitDialog`
+  is not, since dialogs portal outside it. An unknown verb is an error, never a step that silently
+  does nothing, and an invalid `name` or `waitDialog` pattern fails before a browser starts.
+- **`route`** is a Playwright URL glob (`${VAR}` expanded); matching requests for the rest of the row are answered
+  with `status` (default 200) and `body` (a string as-is, anything else as JSON). It is the one
+  verb that may come before the row's `goto`, and every route is cleared when the row ends.
+- **`expectStatus`** (an HTTP status, e.g. `404`) makes the `goto` pass only on that status;
+  **`expectRedirect`** (a path, e.g. `"/sign-in"`) only when it lands there, on the same origin.
+  Without them any status of 400 or above, and any redirect, fails the cell.
+- `${VAR}` in `goto`, `route`, `text`, `name`, `waitDialog` and cookie values comes from the
+  environment, so no inventory commits one account's ids. A missing variable fails the cell, a
+  `goto` value holding `?`, `#`, `\` or a space fails it (it would load another page), and every
+  value is redacted from the tool's output.
+- **Widths** are free: a 320 px phone is `{ "label": "small", "width": 320, "height": 568 }` in
+  `featureAcceptance.widths` or the inventory's `widths`.
 - **`shares`** is `{ "binding", "module" }` or an array of them. With it, every row names its
   `view`; with an array, every row also names its `binding`. `module` names the component used
   as-is, and `view` the file that imports it, which may be a route-level wrapper.

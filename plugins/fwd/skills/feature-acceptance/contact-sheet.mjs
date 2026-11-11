@@ -21,13 +21,18 @@
 /* global window, document, getComputedStyle -- page.evaluate callbacks run in the browser */
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { inspect } from 'node:util';
 
 import { isMain } from '../../lib/is-main.mjs';
 import {
   baseUrlError,
   expand,
   inventoryErrors,
+  redact,
+  registerSecretEnv,
+  registerSecrets,
   sheetHtml,
+  themeErrors,
   widthErrors,
 } from './inventory.mjs';
 import {
@@ -51,23 +56,43 @@ const T = 15_000;
 export async function runStep(page, step, { base, scope, env = process.env }) {
   const onPage = (sel) =>
     (scope ? page.locator(scope).locator(sel) : page.locator(sel)).first();
+  if (step.route !== undefined) {
+    // Answers this row's matching requests; the run clears every route when the row ends.
+    const json = step.body !== undefined && typeof step.body !== 'string';
+    await page.route(expand(step.route, 'route', env), (route) =>
+      route.fulfill({
+        status: step.status ?? 200,
+        body: json ? JSON.stringify(step.body) : (step.body ?? ''),
+        ...(json ? { contentType: 'application/json' } : {}),
+      }),
+    );
+  }
   if (step.goto !== undefined) {
-    const asked = new URL(`${base}${expand(step.goto, 'goto', env)}`);
+    const asked = new URL(
+      `${base}${expand(step.goto, 'goto', env, { forPath: true })}`,
+    );
     const response = await page.goto(asked.href, {
       waitUntil: 'domcontentloaded',
     });
-    // An error page is a reached cell showing nothing: fail it rather than photograph it.
-    if (response && response.status() >= 400)
-      throw new Error(`goto ${step.goto}: HTTP ${response.status()}`);
-    // So is a redirect: to sign-in, to home, to another origin. Write the goto as the final path.
+    // An error page is a reached cell showing nothing: fail it rather than photograph it, unless
+    // the row says it is photographing that error page (`expectStatus`).
+    const status = response?.status();
+    if (step.expectStatus !== undefined) {
+      if (status !== step.expectStatus)
+        throw new Error(
+          `goto ${step.goto}: expected HTTP ${step.expectStatus}, got ${status ?? 'no response'}`,
+        );
+    } else if (status >= 400)
+      throw new Error(`goto ${step.goto}: HTTP ${status}`);
+    // So is a redirect: to sign-in, to home, to another origin. Write the goto as the final path,
+    // or name the redirect the row is photographing (`expectRedirect`).
     const landed = new URL(page.url());
     const trim = (p) => p.replace(/(.)\/$/, '$1');
-    if (
-      landed.origin !== asked.origin ||
-      trim(landed.pathname) !== trim(asked.pathname)
-    )
+    const want = step.expectRedirect ?? asked.pathname;
+    if (landed.origin !== asked.origin || trim(landed.pathname) !== trim(want))
       throw new Error(
-        `goto ${step.goto} landed on ${landed.origin === asked.origin ? landed.pathname : landed.origin + landed.pathname}`,
+        `goto ${step.goto} landed on ${landed.origin === asked.origin ? landed.pathname : landed.origin + landed.pathname}` +
+          (step.expectRedirect ? `, not ${step.expectRedirect}` : ''),
       );
   }
   if (step.store !== undefined)
@@ -94,11 +119,16 @@ export async function runStep(page, step, { base, scope, env = process.env }) {
     });
   if (step.wait !== undefined)
     await onPage(step.wait).waitFor({ state: 'visible', timeout: T });
-  if (step.waitDialog !== undefined)
+  if (step.waitDialog !== undefined) {
+    // A regex, like clickRole's name: `^Filters$` for an exact name.
+    const name = new RegExp(
+      expand(step.waitDialog, 'waitDialog', env, { forRegex: true }),
+    );
     await page
-      .getByRole('dialog', { name: step.waitDialog, exact: true })
+      .getByRole('dialog', { name })
       .first()
       .waitFor({ state: 'visible', timeout: T });
+  }
   if (step.hover !== undefined) await onPage(step.hover).hover({ timeout: T });
   if (step.back) {
     // goBack resolves null when there is nowhere to go: a no-op that would photograph this page.
@@ -135,13 +165,91 @@ export async function runStep(page, step, { base, scope, env = process.env }) {
     });
 }
 
+/**
+ * A failed cell's note: the error's first line, redacted BEFORE it is cut, so a cut can never leave
+ * part of a secret behind.
+ */
+export function cellNote(error, max = 160) {
+  return redact(String(error)).split('\n')[0].slice(0, max);
+}
+
+/**
+ * Puts a theme on a fresh context: its cookies, and its localStorage written by an init script so
+ * it is in place before the page's own theme script reads it, on every navigation. `colorScheme`
+ * is set when the context is created.
+ */
+export async function applyTheme(context, theme, base) {
+  if (!theme) return;
+  if (theme.cookies?.length)
+    await context.addCookies(
+      theme.cookies.map((c) => ({ name: c.name, value: c.value, url: base })),
+    );
+  if (theme.storage)
+    await context.addInitScript((items) => {
+      try {
+        for (const [k, v] of Object.entries(items))
+          window.localStorage.setItem(k, v);
+      } catch {
+        // about:blank and opaque origins have no storage; the next navigation sets it.
+      }
+    }, theme.storage);
+}
+
+/**
+ * Fails the cell when the page did not draw the asked-for theme: an app that ignores the cookie or
+ * key, or overrides it after load (a signed-in user's saved theme), would otherwise photograph its
+ * default under this theme's name.
+ */
+export async function checkTheme(page, theme) {
+  if (!theme?.dataTheme) return;
+  const drawn = await page.evaluate(
+    () => document.documentElement.dataset.theme ?? null,
+  );
+  if (drawn !== theme.dataTheme)
+    throw new Error(
+      `theme ${theme.label}: the page drew data-theme="${drawn}", not "${theme.dataTheme}"`,
+    );
+}
+
+/**
+ * Routes console.log, info, warn and error through `redact` until the returned restore is called:
+ * the project's sign-in module and anything it imports print through the same console.
+ */
+export function redactConsole(target = console) {
+  const originals = {};
+  for (const level of ['log', 'info', 'warn', 'error']) {
+    originals[level] = target[level];
+    target[level] = (...args) =>
+      originals[level].call(
+        target,
+        ...args.map((a) =>
+          typeof a === 'string' ? redact(a) : redact(inspect(a)),
+        ),
+      );
+  }
+  return () => Object.assign(target, originals);
+}
+
 async function main() {
+  // Everything printed goes through redact (see registerSecrets), the project's own output too.
+  registerSecretEnv();
+  const restore = redactConsole();
+  try {
+    await photograph();
+  } finally {
+    restore();
+  }
+}
+
+async function photograph() {
+  const say = (text) => console.log(text);
   const { flags, positional } = parseArgs(process.argv.slice(2), {
     valued: ['root', 'base'],
   });
   const root = projectRoot(flags);
   const inventoryPath = positional[0];
   const inventory = await readInventory(inventoryPath);
+  registerSecrets(inventory);
   const cfg = acceptanceConfig(root);
 
   const base = (
@@ -157,7 +265,7 @@ async function main() {
   if (baseError) throw new SetupError(baseError);
   // Named on every run and on the sheet, so a sheet of the wrong server (another worktree's dev
   // server on the same port, local when staging was meant) is visible as such.
-  console.log(
+  say(
     `photographing ${base}${cfg.productionUrl ? '' : ' (no productionUrl set, so production is not refused)'}`,
   );
 
@@ -167,8 +275,18 @@ async function main() {
     widths,
     inventory.widths ? 'inventory' : 'featureAcceptance',
   );
+  // Optional: every theme is a pass of the whole sheet in a fresh context. None draws the default.
+  const themes = inventory.themes ?? cfg.themes;
+  const themeProblems =
+    themes === undefined
+      ? []
+      : themeErrors(
+          themes,
+          inventory.themes ? 'inventory' : 'featureAcceptance',
+        );
   const problems = [
     ...widthProblems,
+    ...themeProblems,
     ...inventoryErrors(inventory, widths.map?.((w) => w.label) ?? []),
   ];
   if (problems.length)
@@ -186,6 +304,7 @@ async function main() {
   } catch (error) {
     throw new SetupError(error.message);
   }
+  const passes = themes ?? [null];
 
   // Settled before a browser starts, so a misconfigured project fails in a second, not a minute.
   let signIn = null;
@@ -219,55 +338,69 @@ async function main() {
   const shots = [];
   const browser = await chromium.launch();
   try {
-    for (const size of widths) {
-      const context = await browser.newContext({
-        viewport: { width: size.width, height: size.height },
-        deviceScaleFactor: 1,
-        hasTouch: size.touch === true,
-      });
-      if (cookies.length) await context.addCookies(cookies);
-      const page = await context.newPage();
-      // A failed sign-in fails every cell at this width, named, and the run goes on to the next.
-      let signInFailed = '';
-      if (signIn)
-        await Promise.resolve()
-          .then(() => signIn(page, { baseUrl: base }))
-          .catch((error) => {
-            signInFailed = `sign-in failed: ${String(error?.message ?? error)
-              .split('\n')[0]
-              .slice(0, 140)}`;
-          });
-      for (const row of inventory.rows) {
-        // A surface that exists at one width only says so; the other width is not a failed cell.
-        if (row.widths && !row.widths.includes(size.label)) {
-          console.log(`· ${row.id} · ${size.label}: not drawn at this width`);
-          continue;
-        }
-        const file = path.join(outDir, `${row.id}-${size.label}.png`);
-        // A shot left by an earlier run must not stand in for a cell that failed this time.
-        await rm(file, { force: true });
-        let note = signInFailed;
-        if (!note)
-          try {
-            for (const step of row.steps)
-              await runStep(page, step, { base, scope });
-            await page.screenshot({
-              path: file,
-              fullPage: row.fullPage ?? inventory.fullPage ?? false,
+    for (const theme of passes)
+      for (const size of widths) {
+        const context = await browser.newContext({
+          viewport: { width: size.width, height: size.height },
+          deviceScaleFactor: 1,
+          hasTouch: size.touch === true,
+          // A service worker answers from its cache and outlives the row; and Playwright cannot
+          // see, route or mock what a worker fetches.
+          serviceWorkers: 'block',
+          ...(theme?.colorScheme ? { colorScheme: theme.colorScheme } : {}),
+        });
+        if (cookies.length) await context.addCookies(cookies);
+        await applyTheme(context, theme, base);
+        const page = await context.newPage();
+        const where = theme ? `${size.label} · ${theme.label}` : size.label;
+        const suffix = theme ? `-${theme.label}` : '';
+        // A failed sign-in fails every cell at this width, named, and the run goes on to the next.
+        let signInFailed = '';
+        if (signIn)
+          await Promise.resolve()
+            .then(() => signIn(page, { baseUrl: base }))
+            .catch((error) => {
+              signInFailed = `sign-in failed: ${cellNote(error?.message ?? error, 140)}`;
             });
-          } catch (error) {
-            note = String(error).split('\n')[0].slice(0, 160);
-            await page.screenshot({ path: file }).catch(() => {});
+        for (const row of inventory.rows) {
+          // A surface that exists at one width only says so; the other width is not a failed cell.
+          if (row.widths && !row.widths.includes(size.label)) {
+            say(`· ${row.id} · ${where}: not drawn at this width`);
+            continue;
           }
-        // A row that went offline must not leave the next one photographing an offline app.
-        await context.setOffline(false);
-        shots.push({ label: row.label, size: size.label, file, note });
-        console.log(
-          `${note ? '✗' : '✓'} ${row.id} · ${size.label}${note ? `: ${note}` : ''}`,
-        );
+          const file = path.join(
+            outDir,
+            `${row.id}-${size.label}${suffix}.png`,
+          );
+          // A shot left by an earlier run must not stand in for a cell that failed this time.
+          await rm(file, { force: true });
+          let note = signInFailed;
+          if (!note)
+            try {
+              for (const step of row.steps)
+                await runStep(page, step, { base, scope });
+              await checkTheme(page, theme);
+              await page.screenshot({
+                path: file,
+                fullPage: row.fullPage ?? inventory.fullPage ?? false,
+              });
+            } catch (error) {
+              note = cellNote(error);
+              await page.screenshot({ path: file }).catch(() => {});
+            }
+          // A row that went offline, or mocked a request, must not leave the next one in that state.
+          await context.setOffline(false);
+          // unrouteAll is Playwright 1.41+, only needed by a row that routed: an older Playwright
+          // then stops the run rather than carry one row's mocks into the next.
+          if (row.steps.some((s) => s.route !== undefined))
+            await page.unrouteAll({ behavior: 'ignoreErrors' });
+          shots.push({ label: row.label, size: where, file, note });
+          say(
+            `${note ? '✗' : '✓'} ${row.id} · ${where}${note ? `: ${note}` : ''}`,
+          );
+        }
+        await context.close();
       }
-      await context.close();
-    }
 
     // The sheet: a page of the photographs, screenshotted. No image library to install.
     const sheetPage = await (
@@ -285,21 +418,21 @@ async function main() {
     await sheetPage.waitForTimeout(600);
     const sheet = path.join(outDir, 'sheet.png');
     await sheetPage.screenshot({ path: sheet, fullPage: true });
-    console.log(`\nsheet: ${sheet}`);
+    say(`\nsheet: ${sheet}`);
   } finally {
     await browser.close();
   }
 
   // The backstop: a run that photographed nothing is a silent success whatever caused it.
   if (shots.length === 0) {
-    console.log(
+    say(
       '\nNOTHING WAS PHOTOGRAPHED. A sheet with no cells is not coverage: check rows and widths.',
     );
     process.exitCode = 1;
   }
   const failed = shots.filter((s) => s.note);
   if (failed.length) {
-    console.log(
+    say(
       `\n${failed.length} of ${shots.length} cells did not reach their surface. Those cells have no evidence in them.`,
     );
     process.exitCode = 1;
