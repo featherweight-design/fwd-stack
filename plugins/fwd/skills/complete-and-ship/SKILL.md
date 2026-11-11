@@ -298,6 +298,8 @@ marker presence, import equality against any route the brief says this one match
 - Fix ALL gaps found by Agent 2 at once. Run the quality gate again. Then run `design-review` **Agent 3** (confirm) on the gap list only.
 - If Agent 3 still finds gaps, fix them and re-run Agent 3 **once more**, on those items only. If that re-run still finds gaps, stop iterating: list them in the gap report and report them to the user.
 - Proceed to 4b only after Agent 3 returns 0 gaps, or the user accepts the listed remainder.
+- Put the verified rows in the PR body under `## Design review`, in the `design-review` skill's
+  table format. A UI PR does not merge without it.
 
 **Total agent calls for UI verification: four at most (one bounded Agent 3 re-run), never 10+.**
 
@@ -464,6 +466,9 @@ gh pr create \
 - [ ] Lint passes
 - [ ] CI passes (tests run in CI only)
 - [ ] Manual smoke: <what to click/verify>
+
+## Design review
+<!-- UI PRs: the design-review verify table and the contact sheet. Omit for non-UI PRs. -->
 
 ## Spec coverage
 - All spec and design requirements implemented

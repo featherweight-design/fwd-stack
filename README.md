@@ -209,6 +209,7 @@ marketplace first:
 | `feature-acceptance` | Proves a UI feature landed on every route and viewport: contact sheet, `check-shared` and `check-tokens` tools |
 | `design-review`      | Compares an implementation against its design handoff, property by property                                    |
 | `design-status`      | A fixed-shape readout of the design pipeline's state                                                           |
+| `readiness-review`   | Audits a design handoff on seven dimensions and writes its READINESS verdict before any UI work                |
 | `css-layout-triage`  | Measurement-first triage for layout bugs that resist fixing                                                    |
 | `complete-and-ship`  | Finishes a plan's remaining tasks unattended, then opens and reviews the PR                                    |
 | `epic-run`           | Runs a multi-PR feature epic end to end with per-PR and whole-vertical gates                                   |
