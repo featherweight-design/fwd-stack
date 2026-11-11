@@ -102,8 +102,10 @@ node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> 
 
 It photographs a **deployed** build (staging or a preview: `--base`, else `CONTACT_SHEET_BASE`,
 else `featureAcceptance.baseUrl`) and refuses a local address: a local build is not what users get.
-It exits 1 when any cell did not reach its surface or nothing was photographed, and 2 when it
-cannot run (no project setup, a malformed inventory, Playwright missing). Adding a feature means
+A cell fails on a step that finds nothing, an HTTP error, a redirect away from the asked path (a
+sign-in wall, a home fallback) or a `back` with nowhere to go. It exits 1 when any cell did not
+reach its surface or nothing was photographed, and 2 when it cannot run (no project setup, a
+malformed inventory, an unknown flag, Playwright missing). Adding a feature means
 adding an inventory, never another script.
 
 **Phone and desktop parity is proven here, not asserted.** Every row runs at every width unless
@@ -231,7 +233,8 @@ both validate it, and refuse it rather than run part of it.
   optionally `note`, `out`, `signedOut` (photograph with no sign-in), `fullPage`, `widths` (replaces
   the project's for this inventory), `cookies` (`[{ "name", "value" }]`), `shares`.
 - **A row:** `id` (lowercase, dashes; names the file), `label` (what the cell shows), `steps`
-  (non-empty), and optionally `view`, `binding`, `widths` (the labels it exists at; the others are
+  (non-empty, the first with a `goto`: rows share one page per width, so a row that does not load
+  its own route photographs what the last row left), and optionally `view`, `binding`, `widths` (the labels it exists at; the others are
   skipped, not failed), `fullPage`.
 - **Steps** are objects of verbs, run in this order within a step: `goto` (a path), `store`
   (localStorage), `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `waitDialog` (a
