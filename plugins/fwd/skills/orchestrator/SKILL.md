@@ -134,9 +134,15 @@ nothing was watching.
   on a truncated PR list, after five failed polls, or on the hourly heartbeat. On each wake: nudge
   the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow
   external events, such as a platform patch.
-- **While the user is present,** never wait in the foreground: it holds the turn, and their
-  messages queue behind it. **Overnight,** a bounded foreground loop (under 10 minutes) is fine
-  and saves autonomous-guard continuations.
+- **Never wait in the foreground, present or away.** A foreground wait holds the turn, and the
+  user's messages queue behind it, so an away window is no exception: the user checks in during
+  it too. Wait on CI, a PR, a deploy or a peer with the Bash tool's `run_in_background`, the
+  watchdog or the Monitor tool, and let the completion notification wake you. Foreground
+  commands are for quick work only (roughly under 30 seconds). Under the autonomous guard, the
+  pattern is a background wait plus the guard's continuation: each continuation starts or
+  re-arms a background watcher and ends the turn, never a foreground loop. The plugin's
+  foreground-wait guard denies a long foreground `sleep`, a `sleep` in a loop, `gh … --watch`,
+  `gh run watch` and `tail -f`.
 - **When the user leaves,** open the away window for as long as they will be gone, and arm the
   autonomous-run guard to cover all of it:
   `node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" set 10`, then `autonomous-guard.mjs arm … --minutes=600
