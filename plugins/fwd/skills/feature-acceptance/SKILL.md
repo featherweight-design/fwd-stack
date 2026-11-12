@@ -265,7 +265,13 @@ both validate it, and refuse it rather than run part of it.
       "id": "not-found",
       "label": "an unknown project, 404 page",
       "view": "src/app/projects/view.tsx",
-      "steps": [{ "goto": "/projects/nope", "expectStatus": 404, "wait": "[data-testid=\"not-found\"]" }]
+      "steps": [
+        {
+          "goto": "/projects/nope",
+          "expectStatus": 404,
+          "wait": "[data-testid=\"not-found\"]"
+        }
+      ]
     }
   ]
 }
