@@ -277,48 +277,59 @@ export async function checkLoaded(page, markers) {
 export const IMAGE_WAIT_MS = 5000;
 
 /**
- * Waits until every image the shot will show has decoded (complete, with a naturalWidth), so a
- * lazy card is not photographed as an empty frame. A full-page shot does not scroll, so its lazy
- * images are switched to eager first. Bounded: when the wait runs out, it returns how many images
- * are still missing (slow or broken) and the cell is shot as it stands. Never names an image's
- * URL: one can carry a token.
+ * Waits until every image the shot will show has finished loading, so a lazy card is not
+ * photographed as an empty frame. A full-page shot does not scroll, so its lazy images are switched
+ * to eager first. An image clipped out of sight by a scrolling or overflow-hidden ancestor (a
+ * carousel's other slides) is not waited for: a lazy one there never loads. Bounded: when the wait
+ * runs out, the cell is shot as it stands. Returns how many images are still loading and how many
+ * finished with nothing to draw (broken, or no source); a broken one is not waited for. Never names
+ * an image's URL: one can carry a token.
  */
 export async function waitForImages(
   page,
   { fullPage = false, timeout = IMAGE_WAIT_MS } = {},
 ) {
-  // Runs in the page, so it carries everything it needs: true when nothing is pending, or the
-  // count of what is.
-  const pending = ({ whole, count }) => {
-    let n = 0;
+  // Runs in the page, so it carries everything it needs. With `count`, returns the tallies;
+  // without, true once nothing is still loading.
+  const scan = ({ whole, count }) => {
+    const overlaps = (r, c) =>
+      r.bottom >= c.top &&
+      r.top <= c.bottom &&
+      r.right >= c.left &&
+      r.left <= c.right;
+    let loading = 0;
+    let broken = 0;
     for (const img of document.querySelectorAll('img')) {
-      const box = img.getBoundingClientRect();
-      if (!box.width || !box.height) continue;
-      if (getComputedStyle(img).visibility === 'hidden') continue;
-      const onScreen =
-        box.bottom > 0 &&
-        box.right > 0 &&
-        box.top < window.innerHeight &&
-        box.left < window.innerWidth;
-      if (!whole && !onScreen) continue;
+      // Before any size check: a lazy image with no reserved box is 0x0 until it loads.
       if (whole && img.loading === 'lazy') img.loading = 'eager';
-      if (!(img.complete && img.naturalWidth > 0)) n += 1;
+      if (!img.getClientRects().length) continue; // display: none, here or above
+      if (getComputedStyle(img).visibility === 'hidden') continue;
+      const box = img.getBoundingClientRect();
+      const screen = {
+        top: 0,
+        left: 0,
+        bottom: window.innerHeight,
+        right: window.innerWidth,
+      };
+      if (!whole && !overlaps(box, screen)) continue;
+      let clipped = false;
+      for (let el = img.parentElement; el && !clipped; el = el.parentElement) {
+        const style = getComputedStyle(el);
+        if (style.overflowX !== 'visible' || style.overflowY !== 'visible')
+          clipped = !overlaps(box, el.getBoundingClientRect());
+      }
+      if (clipped) continue;
+      if (!img.complete) loading += 1;
+      else if (!img.naturalWidth) broken += 1;
     }
-    return count ? n : n === 0;
+    return count ? { loading, broken } : loading === 0;
   };
-  const done = await page
-    .waitForFunction(pending, { whole: fullPage, count: false }, { timeout })
-    .then(
-      () => true,
-      (error) => {
-        if (error?.name !== 'TimeoutError') throw error;
-        return false;
-      },
-    );
-  if (done) return 0;
-  return page
-    .evaluate(pending, { whole: fullPage, count: true })
-    .catch(() => 0);
+  await page
+    .waitForFunction(scan, { whole: fullPage, count: false }, { timeout })
+    .catch((error) => {
+      if (error?.name !== 'TimeoutError') throw error;
+    });
+  return page.evaluate(scan, { whole: fullPage, count: true });
 }
 
 /**
@@ -500,10 +511,15 @@ async function photograph() {
               await checkTheme(page, theme);
               await checkLoaded(page, loading);
               const fullPage = row.fullPage ?? inventory.fullPage ?? false;
-              const unloaded = await waitForImages(page, { fullPage });
-              if (unloaded)
+              const images = await waitForImages(page, { fullPage });
+              const missing = [
+                images.loading &&
+                  `${images.loading} still loading after ${IMAGE_WAIT_MS / 1000}s`,
+                images.broken && `${images.broken} broken or without a source`,
+              ].filter(Boolean);
+              if (missing.length)
                 say(
-                  `· ${row.id} · ${where}: ${unloaded} image${unloaded === 1 ? '' : 's'} still not loaded after ${IMAGE_WAIT_MS / 1000}s (slow or broken); shot as it stands`,
+                  `· ${row.id} · ${where}: images ${missing.join(', ')}; shot as it stands`,
                 );
               await page.screenshot({ path: file, fullPage });
             } catch (error) {

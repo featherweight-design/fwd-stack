@@ -324,8 +324,9 @@ both validate it, and refuse it rather than run part of it.
   readiness check, and a sheet of loading skeletons reads as coverage.
 - Images need no step of their own. Before each shot, the sheet waits up to 5 seconds for every
   image the shot shows to load (for a full-page shot, every image on the page, lazy ones
-  included), so a card is not photographed as an empty frame. An image still missing after that
-  is logged by count, slow or broken, and the cell is shot as it stands.
+  included), so a card is not photographed as an empty frame. Images clipped out of sight, such as
+  a carousel's other slides, are not waited for, and neither is a broken one. The run logs how many
+  were still loading or broken, and the cell is shot as it stands.
 - There is no optional step. A step that finds nothing fails the cell, which is the point of it.
 
 ## Do not add pixel-diff visual regression
