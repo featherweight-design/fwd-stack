@@ -298,7 +298,7 @@ both validate it, and refuse it rather than run part of it.
   skipped, not failed), `fullPage`.
 - **Steps** are objects of verbs, run in this order within a step: `route` + `status` and/or
   `body`, `goto` (a path) with optional `expectStatus` / `expectRedirect`, `store` (localStorage),
-  `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `waitDialog` (a regex on the
+  `click`, `clickRole` + `name` (a regex), `fill` + `text`, `wait`, `expectMeta` + `content` (a `<meta>` name or property and a regex its content must match, for what the pixels cannot show, e.g. `{ "expectMeta": "robots", "content": "noindex" }` on a soft 404), `waitDialog` (a regex on the
   dialog's accessible name, like `name`: `^Filters$` for an exact match; before 0.1.30 it was
   exact, so anchor the names older inventories wrote), `hover`, `back`,
   `offline`, `pressKey`, `settle` (ms), `scrollTo`, `scroll` (pixels or `"bottom"`). Put verbs that

@@ -310,3 +310,36 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
     /still loading: \.skeleton is visible/,
   );
 });
+
+test('expectMeta: passes when a meta tag matches, and names what it found when none does', async () => {
+  const metaPage = (tags) => ({
+    async waitForFunction(fn, [n, p]) {
+      const hit = tags.some(
+        (t) =>
+          (t.name === n || t.property === n) && new RegExp(p).test(t.content),
+      );
+      if (!hit) throw new Error('timeout');
+    },
+    async evaluate(fn, n) {
+      return tags
+        .filter((t) => t.name === n || t.property === n)
+        .map((t) => t.content);
+    },
+  });
+  const step = { expectMeta: 'robots', content: 'noindex' };
+  await runStep(
+    metaPage([{ name: 'robots', content: 'noindex, nofollow' }]),
+    step,
+    { base: BASE },
+  );
+  await assert.rejects(
+    runStep(metaPage([{ name: 'robots', content: 'index' }]), step, {
+      base: BASE,
+    }),
+    /meta robots: content \["index"\] does not match \/noindex\//,
+  );
+  await assert.rejects(
+    runStep(metaPage([]), step, { base: BASE }),
+    /meta robots: not on the page/,
+  );
+});

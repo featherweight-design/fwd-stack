@@ -572,3 +572,27 @@ test('a wait on a bare element is refused: the loading skeleton draws it too', (
       [],
     );
 });
+
+test('expectMeta needs a content pattern that compiles and is not empty', () => {
+  const steps = (s) => errs(inv({ rows: [row({ steps: s })] })).join();
+  assert.equal(
+    steps([
+      { goto: '/x', expectStatus: 404 },
+      { expectMeta: 'robots', content: 'noindex' },
+    ]),
+    '',
+  );
+  assert.match(
+    steps([{ expectMeta: 'robots' }]),
+    /"expectMeta" needs "content"/,
+  );
+  assert.match(
+    steps([{ expectMeta: 'robots', content: '' }]),
+    /non-empty pattern/,
+  );
+  assert.match(
+    steps([{ expectMeta: 'robots', content: '(' }]),
+    /not a valid regex/,
+  );
+  assert.match(steps([{ expectMeta: '', content: 'x' }]), /non-empty string/);
+});
