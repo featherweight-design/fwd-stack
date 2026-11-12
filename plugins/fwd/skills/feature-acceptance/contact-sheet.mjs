@@ -129,6 +129,47 @@ export async function runStep(page, step, { base, scope, env = process.env }) {
       .first()
       .waitFor({ state: 'visible', timeout: T });
   }
+  // A tag in the head (or streamed into the body, as Next does for metadata) that the pixels cannot
+  // show: a soft 404's `robots: noindex`, say. Waits for it like `wait`, then names what it found.
+  if (step.expectMeta !== undefined) {
+    const name = step.expectMeta;
+    const pattern = step.content;
+    const matches = ([n, p]) =>
+      [...document.querySelectorAll('meta')].some(
+        (m) =>
+          (m.getAttribute('name') === n || m.getAttribute('property') === n) &&
+          new RegExp(p).test(m.getAttribute('content') ?? ''),
+      );
+    const found = await page
+      .waitForFunction(matches, [name, pattern], { timeout: T })
+      .then(
+        () => true,
+        (error) => {
+          // Only a timeout means "not found"; anything else is a real failure, said as itself.
+          if (error?.name !== 'TimeoutError') throw error;
+          return false;
+        },
+      );
+    if (!found) {
+      const count = await page
+        .evaluate(
+          (n) =>
+            [...document.querySelectorAll('meta')].filter(
+              (m) =>
+                m.getAttribute('name') === n ||
+                m.getAttribute('property') === n,
+            ).length,
+          name,
+        )
+        .catch(() => 0);
+      // The page's own values are never echoed: a meta tag can carry a token.
+      throw new Error(
+        count
+          ? `meta ${name}: ${count} on the page, none whose content matches /${pattern}/`
+          : `meta ${name}: not on the page`,
+      );
+    }
+  }
   if (step.hover !== undefined) await onPage(step.hover).hover({ timeout: T });
   if (step.back) {
     // goBack resolves null when there is nowhere to go: a no-op that would photograph this page.

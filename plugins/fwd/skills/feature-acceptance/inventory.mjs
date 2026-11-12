@@ -21,6 +21,7 @@ export const VERBS = [
   'fill', // selector, with `text` (`${VAR}` expanded)
   'wait', // selector, scoped to the page, waited for visible
   'waitDialog', // a dialog's accessible name, a regex like clickRole's; not page-scoped
+  'expectMeta', // a <meta> name or property, with `content` (a regex) it must carry; e.g. robots
   'hover', // selector, scoped to the page
   'back', // true: browser back
   'offline', // true or false: the browser's offline switch
@@ -35,8 +36,9 @@ const ARGS = {
   goto: ['expectStatus', 'expectRedirect'],
   clickRole: ['name'],
   fill: ['text'],
+  expectMeta: ['content'],
 };
-const REQUIRED = { clickRole: 'name', fill: 'text' };
+const REQUIRED = { clickRole: 'name', fill: 'text', expectMeta: 'content' };
 const ROUTE_ONLY = ['route', ...ARGS.route];
 const THEME_KEYS = ['label', 'cookies', 'storage', 'colorScheme', 'dataTheme'];
 const ROW_KEYS = [
@@ -248,10 +250,21 @@ function stepErrors(step, at) {
   // An empty pattern matches every element of the role: the first one is clicked, silently.
   if (keys.includes('clickRole') && step.name === '')
     errors.push(`${at}: "name" takes a non-empty pattern`);
+  // An empty `content` matches any value, so the tag's mere presence would pass.
+  if (keys.includes('expectMeta') && step.content === '')
+    errors.push(`${at}: "content" takes a non-empty pattern`);
+  // `content` is matched as written; a `${VAR}` in it would match literally and fail the cell.
+  if (
+    keys.includes('expectMeta') &&
+    typeof step.content === 'string' &&
+    step.content.includes('${')
+  )
+    errors.push(`${at}: "content" is matched as written; it takes no \${VAR}`);
   // A pattern that does not compile fails at the step, mid-run; say so before a browser starts.
   for (const [key, value] of [
     ['name', step.name],
     ['waitDialog', step.waitDialog],
+    ['content', step.content],
   ])
     if (typeof value === 'string')
       try {
@@ -303,6 +316,7 @@ function stepErrors(step, at) {
     'fill',
     'wait',
     'waitDialog',
+    'expectMeta',
     'hover',
     'scrollTo',
     'pressKey',

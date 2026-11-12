@@ -310,3 +310,59 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
     /still loading: \.skeleton is visible/,
   );
 });
+
+test('expectMeta: passes when a meta tag matches, fails naming only a count, and surfaces real errors', async () => {
+  const timeout = () =>
+    Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  // Runs the real in-page functions against a stand-in document.
+  const metaPage = (tags, { fail } = {}) => ({
+    async waitForFunction(fn, arg) {
+      if (fail) throw new Error(fail);
+      if (!fn(arg)) throw timeout();
+    },
+    async evaluate(fn, arg) {
+      return fn(arg);
+    },
+  });
+  const withTags = async (tags, run) => {
+    const before = globalThis.document;
+    globalThis.document = {
+      querySelectorAll: () =>
+        tags.map((t) => ({ getAttribute: (k) => t[k] ?? null })),
+    };
+    try {
+      return await run();
+    } finally {
+      globalThis.document = before;
+    }
+  };
+  const step = { expectMeta: 'robots', content: 'noindex' };
+  await withTags([{ name: 'robots', content: 'noindex, nofollow' }], () =>
+    runStep(metaPage(), step, { base: BASE }),
+  );
+  await withTags([{ property: 'robots', content: 'noindex' }], () =>
+    runStep(metaPage(), step, { base: BASE }),
+  );
+  await withTags([{ name: 'robots', content: 'secret-token' }], () =>
+    assert.rejects(runStep(metaPage(), step, { base: BASE }), (e) => {
+      assert.match(
+        e.message,
+        /meta robots: 1 on the page, none whose content matches/,
+      );
+      assert.doesNotMatch(e.message, /secret-token/);
+      return true;
+    }),
+  );
+  await withTags([], () =>
+    assert.rejects(
+      runStep(metaPage(), step, { base: BASE }),
+      /meta robots: not on the page/,
+    ),
+  );
+  await withTags([], () =>
+    assert.rejects(
+      runStep(metaPage([], { fail: 'Target closed' }), step, { base: BASE }),
+      /Target closed/,
+    ),
+  );
+});
