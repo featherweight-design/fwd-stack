@@ -311,35 +311,58 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
   );
 });
 
-test('expectMeta: passes when a meta tag matches, and names what it found when none does', async () => {
-  const metaPage = (tags) => ({
-    async waitForFunction(fn, [n, p]) {
-      const hit = tags.some(
-        (t) =>
-          (t.name === n || t.property === n) && new RegExp(p).test(t.content),
-      );
-      if (!hit) throw new Error('timeout');
+test('expectMeta: passes when a meta tag matches, fails naming only a count, and surfaces real errors', async () => {
+  const timeout = () =>
+    Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  // Runs the real in-page functions against a stand-in document.
+  const metaPage = (tags, { fail } = {}) => ({
+    async waitForFunction(fn, arg) {
+      if (fail) throw new Error(fail);
+      if (!fn(arg)) throw timeout();
     },
-    async evaluate(fn, n) {
-      return tags
-        .filter((t) => t.name === n || t.property === n)
-        .map((t) => t.content);
+    async evaluate(fn, arg) {
+      return fn(arg);
     },
   });
+  const withTags = async (tags, run) => {
+    const before = globalThis.document;
+    globalThis.document = {
+      querySelectorAll: () =>
+        tags.map((t) => ({ getAttribute: (k) => t[k] ?? null })),
+    };
+    try {
+      return await run();
+    } finally {
+      globalThis.document = before;
+    }
+  };
   const step = { expectMeta: 'robots', content: 'noindex' };
-  await runStep(
-    metaPage([{ name: 'robots', content: 'noindex, nofollow' }]),
-    step,
-    { base: BASE },
+  await withTags([{ name: 'robots', content: 'noindex, nofollow' }], () =>
+    runStep(metaPage(), step, { base: BASE }),
   );
-  await assert.rejects(
-    runStep(metaPage([{ name: 'robots', content: 'index' }]), step, {
-      base: BASE,
+  await withTags([{ property: 'robots', content: 'noindex' }], () =>
+    runStep(metaPage(), step, { base: BASE }),
+  );
+  await withTags([{ name: 'robots', content: 'secret-token' }], () =>
+    assert.rejects(runStep(metaPage(), step, { base: BASE }), (e) => {
+      assert.match(
+        e.message,
+        /meta robots: 1 on the page, none whose content matches/,
+      );
+      assert.doesNotMatch(e.message, /secret-token/);
+      return true;
     }),
-    /meta robots: content \["index"\] does not match \/noindex\//,
   );
-  await assert.rejects(
-    runStep(metaPage([]), step, { base: BASE }),
-    /meta robots: not on the page/,
+  await withTags([], () =>
+    assert.rejects(
+      runStep(metaPage(), step, { base: BASE }),
+      /meta robots: not on the page/,
+    ),
+  );
+  await withTags([], () =>
+    assert.rejects(
+      runStep(metaPage([], { fail: 'Target closed' }), step, { base: BASE }),
+      /Target closed/,
+    ),
   );
 });

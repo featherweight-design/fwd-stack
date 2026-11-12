@@ -595,4 +595,5 @@ test('expectMeta needs a content pattern that compiles and is not empty', () => 
     /not a valid regex/,
   );
   assert.match(steps([{ expectMeta: '', content: 'x' }]), /non-empty string/);
+  assert.match(steps([{ expectMeta: 'robots', content: '${X}' }]), /takes no/);
 });

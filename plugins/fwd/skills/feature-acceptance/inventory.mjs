@@ -253,6 +253,13 @@ function stepErrors(step, at) {
   // An empty `content` matches any value, so the tag's mere presence would pass.
   if (keys.includes('expectMeta') && step.content === '')
     errors.push(`${at}: "content" takes a non-empty pattern`);
+  // `content` is matched as written; a `${VAR}` in it would match literally and fail the cell.
+  if (
+    keys.includes('expectMeta') &&
+    typeof step.content === 'string' &&
+    step.content.includes('${')
+  )
+    errors.push(`${at}: "content" is matched as written; it takes no \${VAR}`);
   // A pattern that does not compile fails at the step, mid-run; say so before a browser starts.
   for (const [key, value] of [
     ['name', step.name],

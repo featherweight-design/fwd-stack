@@ -144,25 +144,28 @@ export async function runStep(page, step, { base, scope, env = process.env }) {
       .waitForFunction(matches, [name, pattern], { timeout: T })
       .then(
         () => true,
-        () => false,
+        (error) => {
+          // Only a timeout means "not found"; anything else is a real failure, said as itself.
+          if (error?.name !== 'TimeoutError') throw error;
+          return false;
+        },
       );
     if (!found) {
-      const contents = await page
+      const count = await page
         .evaluate(
           (n) =>
-            [...document.querySelectorAll('meta')]
-              .filter(
-                (m) =>
-                  m.getAttribute('name') === n ||
-                  m.getAttribute('property') === n,
-              )
-              .map((m) => m.getAttribute('content') ?? ''),
+            [...document.querySelectorAll('meta')].filter(
+              (m) =>
+                m.getAttribute('name') === n ||
+                m.getAttribute('property') === n,
+            ).length,
           name,
         )
-        .catch(() => []);
+        .catch(() => 0);
+      // The page's own values are never echoed: a meta tag can carry a token.
       throw new Error(
-        contents.length
-          ? `meta ${name}: content ${JSON.stringify(contents)} does not match /${pattern}/`
+        count
+          ? `meta ${name}: ${count} on the page, none whose content matches /${pattern}/`
           : `meta ${name}: not on the page`,
       );
     }
