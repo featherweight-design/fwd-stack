@@ -8,6 +8,8 @@ import {
   applyTheme,
   cellNote,
   checkLoaded,
+  waitForImages,
+  IMAGE_WAIT_MS,
   checkTheme,
   redactConsole,
   runStep,
@@ -308,6 +310,136 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
   await assert.rejects(
     checkLoaded(page(['.skeleton']), ['[aria-busy="true"]', '.skeleton']),
     /still loading: \.skeleton is visible/,
+  );
+});
+
+test('waitForImages: waits only for images the shot shows, tallies loading and broken, and surfaces real errors', async () => {
+  const timeout = () =>
+    Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  // Runs the real in-page function against a stand-in document.
+  const imgPage = ({ fail } = {}) => ({
+    timeouts: [],
+    async waitForFunction(fn, arg, opts) {
+      this.timeouts.push(opts.timeout);
+      if (fail) throw new Error(fail);
+      if (!fn(arg)) throw timeout();
+    },
+    async evaluate(fn, arg) {
+      return fn(arg);
+    },
+  });
+  const rect = (top, left, w, h) => ({
+    top,
+    left,
+    bottom: top + h,
+    right: left + w,
+    width: w,
+    height: h,
+  });
+  // A carousel track: clips to its own box at the top-left of the screen.
+  const track = {
+    parentElement: null,
+    style: { overflowX: 'hidden', overflowY: 'hidden' },
+    getBoundingClientRect: () => rect(0, 0, 200, 100),
+  };
+  const img = ({
+    top = 0,
+    left = 0,
+    w = 100,
+    h = 50,
+    complete = true,
+    nw = 100,
+    lazy = false,
+    shown = true,
+    hidden = false,
+    parent = null,
+  } = {}) => ({
+    complete,
+    naturalWidth: nw,
+    loading: lazy ? 'lazy' : 'auto',
+    parentElement: parent,
+    style: {
+      visibility: hidden ? 'hidden' : 'visible',
+      overflowX: 'visible',
+      overflowY: 'visible',
+    },
+    getClientRects: () => (shown ? [{}] : []),
+    getBoundingClientRect: () => rect(top, left, w, h),
+  });
+  const withImgs = async (imgs, run) => {
+    const keys = ['document', 'getComputedStyle', 'window'];
+    const saved = keys.map((k) => [
+      k,
+      Object.hasOwn(globalThis, k),
+      globalThis[k],
+    ]);
+    Object.assign(globalThis, {
+      document: { querySelectorAll: () => imgs },
+      getComputedStyle: (el) => el.style,
+      window: { innerHeight: 800, innerWidth: 400 },
+    });
+    try {
+      return await run();
+    } finally {
+      for (const [k, had, v] of saved)
+        if (had) globalThis[k] = v;
+        else delete globalThis[k];
+    }
+  };
+  const none = { loading: 0, broken: 0 };
+  // Loaded, or not in the shot: off screen, display: none, hidden, or clipped by its carousel.
+  await withImgs(
+    [
+      img(),
+      img({ top: 2000, complete: false, nw: 0 }),
+      img({ shown: false, complete: false, nw: 0 }),
+      img({ hidden: true, complete: false, nw: 0 }),
+      img({ left: 300, complete: false, nw: 0, parent: track }),
+    ],
+    async () => {
+      const page = imgPage();
+      assert.deepEqual(await waitForImages(page), none);
+      assert.deepEqual(page.timeouts, [IMAGE_WAIT_MS]);
+    },
+  );
+  // An on-screen image still loading is waited for; a broken one is tallied but not waited for.
+  await withImgs(
+    [img({ complete: false, nw: 0 }), img({ nw: 0 }), img({ nw: 0 })],
+    async () =>
+      assert.deepEqual(await waitForImages(imgPage(), { timeout: 1 }), {
+        loading: 1,
+        broken: 2,
+      }),
+  );
+  await withImgs([img({ nw: 0 })], async () =>
+    assert.deepEqual(await waitForImages(imgPage()), { loading: 0, broken: 1 }),
+  );
+  // A full-page shot counts below-the-fold images, and switches lazy ones to eager, a 0x0 one too.
+  const below = img({ top: 2000, complete: false, nw: 0, lazy: true });
+  const unsized = img({
+    top: 3000,
+    w: 0,
+    h: 0,
+    complete: false,
+    nw: 0,
+    lazy: true,
+  });
+  await withImgs([below, unsized], async () => {
+    assert.deepEqual(
+      await waitForImages(imgPage(), { fullPage: true, timeout: 1 }),
+      {
+        loading: 2,
+        broken: 0,
+      },
+    );
+    assert.equal(below.loading, 'eager');
+    assert.equal(unsized.loading, 'eager');
+  });
+  await withImgs([], () =>
+    assert.rejects(
+      waitForImages(imgPage({ fail: 'Target closed' })),
+      /Target closed/,
+    ),
   );
 });
 
