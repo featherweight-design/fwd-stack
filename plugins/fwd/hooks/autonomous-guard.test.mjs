@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -90,5 +90,50 @@ test('an explicit --session wins over CLAUDE_SESSION_ID', () => {
   assert.equal(
     JSON.parse(cli(e, 'status', '--session=s5').stdout).armed,
     false,
+  );
+});
+
+test('a session waiting on a background command stops freely and spends nothing', () => {
+  const e = env();
+  cli(e, 'arm', 'run', '--max=2', '--session=s9');
+  const transcript = join(mkdtempSync(join(tmpdir(), 'tx-')), 't.jsonl');
+  writeFileSync(
+    transcript,
+    JSON.stringify({
+      type: 'user',
+      timestamp: new Date().toISOString(),
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            content:
+              'Command running in background with ID: b42. Output is being written to: /tmp/b42.output',
+          },
+        ],
+      },
+    }),
+  );
+  for (let i = 0; i < 5; i++)
+    assert.equal(
+      stop(e, { session_id: 's9', transcript_path: transcript }).trim(),
+      '',
+    );
+  assert.equal(JSON.parse(cli(e, 'status', '--session=s9').stdout).count, 0);
+  // Once the command reports back, the guard blocks again.
+  writeFileSync(
+    transcript,
+    `${readFileSync(transcript, 'utf8')}\n${JSON.stringify({
+      type: 'user',
+      timestamp: new Date().toISOString(),
+      message: {
+        content:
+          '<task-notification>\n<task-id>b42</task-id>\n<status>completed</status>\n</task-notification>',
+      },
+    })}`,
+  );
+  assert.equal(
+    JSON.parse(stop(e, { session_id: 's9', transcript_path: transcript }))
+      .decision,
+    'block',
   );
 });

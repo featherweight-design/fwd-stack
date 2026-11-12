@@ -12,7 +12,9 @@
 // This hook kicks the session instead of letting it sit.
 //
 // HOW: on Stop, if this session has an armed sentinel, return decision:"block" with the
-// run's own reason. The model is re-invoked and re-reads its state.
+// run's own reason. The model is re-invoked and re-reads its state. A session with a live
+// background command or a due ScheduleWakeup stops freely and spends nothing
+// (background-waits.mjs): its wake is already on the way.
 //
 // THREE RAILS, because a hook that can refuse to stop can also trap a session:
 //   1. Opt-in per session — nothing happens without an armed sentinel for THIS session_id.
@@ -27,6 +29,7 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
+import { pendingWakes } from './background-waits.mjs';
 
 // State lives in the Claude config folder, not beside this script: an installed plugin's folder is
 // replaced on every update, and a sentinel lost mid-run is a run that silently stops.
@@ -153,6 +156,20 @@ const disarm = (why) => {
 
 if (Date.now() > state.expiresAt) disarm("the run's time window expired");
 if (state.count >= state.max) disarm(`hit its ${state.max}-continuation cap`);
+
+// A session waiting on a background command or a due ScheduleWakeup is already doing the right
+// thing: the wake is coming. Let it stop, and spend no continuation. Blocking it re-invoked the
+// model every few seconds with nothing to do and drained the cap inside one CI wait.
+let transcript = '';
+try {
+  transcript = payload.transcript_path
+    ? readFileSync(payload.transcript_path, 'utf8')
+    : '';
+} catch {
+  // Unreadable transcript: fall through to the ordinary block.
+}
+const wakes = pendingWakes(transcript, Date.now());
+if (wakes.tasks.length || wakes.wakeUntil) process.exit(0);
 
 state.count += 1;
 write(sid, state);
