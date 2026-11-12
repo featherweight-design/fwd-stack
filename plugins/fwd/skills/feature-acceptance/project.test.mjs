@@ -12,8 +12,10 @@ import {
   parseArgs,
   projectRoot,
   readInventory,
+  runTool,
   SetupError,
 } from './project.mjs';
+import { addSecret } from './inventory.mjs';
 
 test('parseArgs: valued flags, switches and positionals', () => {
   assert.deepEqual(
@@ -137,4 +139,35 @@ test('importFromProject: packageDir may list several folders, searched in order,
     importFromProject(root, ['fake-ts'], 'why', ['']),
     /a list of folders/,
   );
+});
+
+test('runTool: setup errors exit 2, other errors exit 1, and both print redacted', async () => {
+  addSecret('CC_CREW_INVITE_TOKEN', 'fake-runtool-tok-31415');
+  const before = process.exitCode;
+  try {
+    const lines = [];
+    await runTool(
+      't',
+      async () => {
+        throw new SetupError('cookie invite: fake-runtool-tok-31415 rejected');
+      },
+      (l) => lines.push(l),
+    );
+    assert.equal(process.exitCode, 2);
+    await runTool(
+      't',
+      async () => {
+        throw new Error('crashed at /invite/fake-runtool-tok-31415');
+      },
+      (l) => lines.push(l),
+    );
+    assert.equal(process.exitCode, 1);
+    assert.equal(lines.length, 2);
+    for (const l of lines) {
+      assert.ok(!l.includes('fake-runtool-tok-31415'), l);
+      assert.match(l, /redacted CC_CREW_INVITE_TOKEN/);
+    }
+  } finally {
+    process.exitCode = before;
+  }
 });

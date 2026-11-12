@@ -8,6 +8,10 @@
 //     "productionUrl": ["https://app.example.com"],   // every production origin; refused as a base
 //     "widths": [{ "label": "phone", "width": 390, "height": 844 },
 //                { "label": "desktop", "width": 1300, "height": 900 }],
+//     "themes": [{ "label": "light", "storage": { "app-theme": "light" }, "dataTheme": "light" },
+//                { "label": "dark", "cookies": [{ "name": "theme", "value": "dark" }],
+//                  "colorScheme": "dark", "dataTheme": "dark" }],
+//                                                     // optional: the sheet once per theme
 //     "pageScope": "main",                            // selector page content lives in ("" = none)
 //     "signIn": "scripts/contact-sheet-sign-in.mjs",  // module exporting signIn(page, { baseUrl })
 //     "inventories": "docs/superpowers/inventories",  // where a feature's inventory JSON lives
@@ -30,6 +34,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { loadConfig } from '../../lib/fwd-config.mjs';
+import { redact } from './inventory.mjs';
 
 /** Exit code for a tool that cannot run: missing config, bad inventory, missing package. */
 export const SETUP_FAILED = 2;
@@ -162,13 +167,20 @@ export async function importProjectFile(root, rel) {
   return import(pathToFileURL(abs).href);
 }
 
-/** Runs a tool's main, turning a SetupError into a named message and exit code 2. */
-export async function runTool(name, main) {
+/**
+ * Runs a tool's main, turning a SetupError into a named message and exit code 2. Any other error
+ * prints its stack and exits 1, both redacted: an uncaught error would print an expanded `${VAR}`.
+ */
+export async function runTool(name, main, log = console.error) {
   try {
     await main();
   } catch (error) {
-    if (!(error instanceof SetupError)) throw error;
-    console.error(`${name}: ${error.message}`);
-    process.exitCode = SETUP_FAILED;
+    if (error instanceof SetupError) {
+      log(redact(`${name}: ${error.message}`));
+      process.exitCode = SETUP_FAILED;
+    } else {
+      log(redact(`${name}: ${error?.stack ?? error}`));
+      process.exitCode = 1;
+    }
   }
 }

@@ -13,13 +13,14 @@
  * silently does nothing while its cell counts as reached, so it fails validation.
  */
 export const VERBS = [
-  'goto', // project-relative path, `${VAR}` expanded from the environment
+  'route', // a URL glob this row's requests to are answered with `status` and `body`
+  'goto', // project-relative path, `${VAR}` expanded; `expectStatus`, `expectRedirect` optional
   'store', // { key: value } written to localStorage
   'click', // selector, scoped to the page
   'clickRole', // ARIA role, with `name` (a regex, `${VAR}` escaped) scoped to the page
   'fill', // selector, with `text` (`${VAR}` expanded)
   'wait', // selector, scoped to the page, waited for visible
-  'waitDialog', // a dialog's accessible name; not page-scoped (dialogs portal to <body>)
+  'waitDialog', // a dialog's accessible name, a regex like clickRole's; not page-scoped
   'hover', // selector, scoped to the page
   'back', // true: browser back
   'offline', // true or false: the browser's offline switch
@@ -28,7 +29,16 @@ export const VERBS = [
   'scrollTo', // selector, scrolled to the viewport centre
   'scroll', // a pixel offset, or "bottom"
 ];
-const ARGS = { clickRole: ['name'], fill: ['text'] };
+/** Arguments that ride with a verb. REQUIRED ones must be present; the rest are optional. */
+const ARGS = {
+  route: ['status', 'body'],
+  goto: ['expectStatus', 'expectRedirect'],
+  clickRole: ['name'],
+  fill: ['text'],
+};
+const REQUIRED = { clickRole: 'name', fill: 'text' };
+const ROUTE_ONLY = ['route', ...ARGS.route];
+const THEME_KEYS = ['label', 'cookies', 'storage', 'colorScheme', 'dataTheme'];
 const ROW_KEYS = [
   'id',
   'label',
@@ -46,6 +56,7 @@ const TOP_KEYS = [
   'fullPage',
   'widths',
   'cookies',
+  'themes',
   'shares',
   'rows',
 ];
@@ -75,6 +86,79 @@ export function widthErrors(widths, where) {
   return errors;
 }
 
+const cookieListOk = (cookies) =>
+  Array.isArray(cookies) &&
+  cookies.every(
+    (c) => typeof c?.name === 'string' && typeof c?.value === 'string',
+  );
+
+/**
+ * Themes are `{ label, dataTheme, cookies?, storage?, colorScheme? }`, labels unique: each one is
+ * a fresh browser context the whole sheet is photographed in. `cookies` and `storage` (localStorage,
+ * written before the page's own scripts run) select the theme the way the app reads it;
+ * `colorScheme` is the emulated `prefers-color-scheme`; `dataTheme` is read back from
+ * `<html data-theme>` after every row, so a theme the app ignored fails rather than photographing
+ * the default under the asked-for name. Returns error strings.
+ */
+export function themeErrors(themes, where) {
+  if (!Array.isArray(themes) || themes.length === 0)
+    return [`${where}: themes must be a non-empty array`];
+  const errors = [];
+  const seen = new Set();
+  for (const t of themes) {
+    if (
+      !isObject(t) ||
+      typeof t.label !== 'string' ||
+      !/^[a-z0-9-]+$/.test(t.label)
+    ) {
+      errors.push(
+        `${where}: each theme is { "label": "electric", ... } (label lowercase letters, digits, dashes)`,
+      );
+      continue;
+    }
+    const at = `${where}: theme ${t.label}`;
+    if (seen.has(t.label)) errors.push(`${at} twice`);
+    seen.add(t.label);
+    for (const key of Object.keys(t))
+      if (!THEME_KEYS.includes(key)) errors.push(`${at}: unknown key "${key}"`);
+    if (t.cookies !== undefined && !cookieListOk(t.cookies))
+      errors.push(`${at}: "cookies" is [{ "name": "theme", "value": "dark" }]`);
+    if (
+      t.storage !== undefined &&
+      !(
+        isObject(t.storage) &&
+        Object.values(t.storage).every((v) => typeof v === 'string')
+      )
+    )
+      errors.push(`${at}: "storage" is { "key": "value" }, values strings`);
+    if (
+      t.colorScheme !== undefined &&
+      !['light', 'dark', 'no-preference'].includes(t.colorScheme)
+    )
+      errors.push(`${at}: "colorScheme" is "light", "dark" or "no-preference"`);
+    // Required: the read-back is what stops a typo'd cookie or key photographing the default.
+    if (typeof t.dataTheme !== 'string' || !t.dataTheme)
+      errors.push(
+        `${at}: "dataTheme" is the <html data-theme> value the theme draws`,
+      );
+    // Theme values are literal: a theme is not an account, so nothing in it comes from the env.
+    if (JSON.stringify([t.cookies, t.storage]).includes('${'))
+      errors.push(
+        `${at}: theme values are literal; \${VAR} is not expanded here`,
+      );
+    // A theme that sets nothing photographs the default theme under another name.
+    if (
+      t.cookies === undefined &&
+      t.storage === undefined &&
+      t.colorScheme === undefined
+    )
+      errors.push(
+        `${at}: set "cookies", "storage" or "colorScheme", or it draws the default`,
+      );
+  }
+  return errors;
+}
+
 /**
  * Every reason this inventory cannot be run or checked, as messages naming the row. Empty means
  * valid. `widthLabels` are the labels the run will use (config or the inventory's own).
@@ -88,6 +172,8 @@ export function inventoryErrors(inventory, widthLabels) {
     errors.push('"feature" names the feature (the sheet title)');
   if (inventory.widths !== undefined)
     errors.push(...widthErrors(inventory.widths, 'inventory'));
+  if (inventory.themes !== undefined)
+    errors.push(...themeErrors(inventory.themes, 'inventory'));
   const rows = inventory.rows;
   // No rows would photograph nothing and exit 0: the quiet pass this artifact exists to prevent.
   if (!Array.isArray(rows) || rows.length === 0)
@@ -123,21 +209,18 @@ export function inventoryErrors(inventory, widthLabels) {
         errors.push(...stepErrors(step, `${at} step ${j}`)),
       );
       // Rows share one page per width, so a row that does not load its own route photographs
-      // whatever the previous row (or a failed one) left behind.
-      if (row.steps[0]?.goto === undefined)
+      // whatever the previous row (or a failed one) left behind. Only `route` may come first, since
+      // a mock has to be in place before the load it answers.
+      const first = row.steps.find(
+        (s) =>
+          !isObject(s) || Object.keys(s).some((k) => !ROUTE_ONLY.includes(k)),
+      );
+      if (first?.goto === undefined)
         errors.push(`${at}: the first step loads the row's route with "goto"`);
     }
   });
   const cookies = inventory.cookies;
-  if (
-    cookies !== undefined &&
-    !(
-      Array.isArray(cookies) &&
-      cookies.every(
-        (c) => typeof c?.name === 'string' && typeof c?.value === 'string',
-      )
-    )
-  )
+  if (cookies !== undefined && !cookieListOk(cookies))
     errors.push('"cookies" is [{ "name": "theme", "value": "${THEME}" }]');
   errors.push(...sharesErrors(inventory));
   return errors;
@@ -159,12 +242,61 @@ function stepErrors(step, at) {
     else if (!owner && !VERBS.includes(key))
       errors.push(`${at}: unknown verb "${key}"`);
   }
-  for (const [verb, args] of Object.entries(ARGS))
-    for (const arg of args)
-      if (keys.includes(verb) && typeof step[arg] !== 'string')
-        errors.push(`${at}: "${verb}" needs "${arg}"`);
+  for (const [verb, arg] of Object.entries(REQUIRED))
+    if (keys.includes(verb) && typeof step[arg] !== 'string')
+      errors.push(`${at}: "${verb}" needs "${arg}"`);
+  // An empty pattern matches every element of the role: the first one is clicked, silently.
+  if (keys.includes('clickRole') && step.name === '')
+    errors.push(`${at}: "name" takes a non-empty pattern`);
+  // A pattern that does not compile fails at the step, mid-run; say so before a browser starts.
+  for (const [key, value] of [
+    ['name', step.name],
+    ['waitDialog', step.waitDialog],
+  ])
+    if (typeof value === 'string')
+      try {
+        new RegExp(value.replace(/\$\{\w+\}/g, 'x'));
+      } catch {
+        errors.push(`${at}: "${key}" is not a valid regex`);
+      }
+  // A browser follows redirects, so a goto never ends on a 3xx: that is `expectRedirect`.
+  if (
+    keys.includes('expectStatus') &&
+    !(
+      Number.isInteger(step.expectStatus) &&
+      ((step.expectStatus >= 200 && step.expectStatus < 300) ||
+        (step.expectStatus >= 400 && step.expectStatus <= 599))
+    )
+  )
+    errors.push(
+      `${at}: "expectStatus" is the HTTP status the page answers, e.g. 404`,
+    );
+  if (
+    keys.includes('expectRedirect') &&
+    !(
+      typeof step.expectRedirect === 'string' &&
+      step.expectRedirect.startsWith('/')
+    )
+  )
+    errors.push(
+      `${at}: "expectRedirect" is the path the goto lands on, e.g. "/sign-in"`,
+    );
+  if (keys.includes('route')) {
+    if (
+      keys.includes('status') &&
+      !(
+        Number.isInteger(step.status) &&
+        step.status >= 100 &&
+        step.status <= 599
+      )
+    )
+      errors.push(`${at}: "status" is an HTTP status`);
+    if (!keys.includes('status') && !keys.includes('body'))
+      errors.push(`${at}: "route" answers with "status", "body" or both`);
+  }
   // An empty selector is a step that would silently not happen.
   for (const verb of [
+    'route',
     'goto',
     'click',
     'clickRole',
@@ -240,20 +372,100 @@ export function sharesErrors(inventory) {
 }
 
 /**
+ * Every value `${VAR}` has expanded to, by variable name. An inventory's variables are account ids
+ * and invite tokens, so each value is scrubbed from everything the tools print or write: a
+ * Playwright error quotes the URL it navigated to, a redirect names the path it landed on, and a
+ * sign-in module's error may quote anything.
+ */
+const secrets = new Map();
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Records `value` as a secret named `name`; empty values are not secrets. */
+export function addSecret(name, value) {
+  if (typeof value === 'string' && value) secrets.set(value, name);
+}
+
+/**
+ * Records the environment value of every `${VAR}` anywhere in `value` (an inventory, walked whole),
+ * before any of it runs, so output is scrubbed even of a value no step has expanded yet.
+ */
+export function registerSecrets(value, env = process.env) {
+  if (typeof value === 'string')
+    for (const [, name] of value.matchAll(/\$\{(\w+)\}/g))
+      addSecret(name, env[name]);
+  else if (Array.isArray(value)) for (const v of value) registerSecrets(v, env);
+  else if (isObject(value))
+    for (const v of Object.values(value)) registerSecrets(v, env);
+}
+
+/** Environment names that hold credentials by convention: a sign-in module's own secrets. */
+const SECRET_NAME =
+  /TOKEN|SECRET|PASSWORD|PASSWD|INVITE|COOKIE|CREDENTIAL|API_?KEY|PRIVATE/i;
+
+/**
+ * Records every environment value whose NAME says it is a credential (and is at least 6 characters,
+ * so a flag like `1` is not scrubbed from every line), so a sign-in module that quotes its own
+ * password or token in an error is redacted too, though no inventory names it.
+ */
+export function registerSecretEnv(env = process.env) {
+  for (const [name, value] of Object.entries(env))
+    if (
+      SECRET_NAME.test(name) &&
+      typeof value === 'string' &&
+      value.length >= 6
+    )
+      addSecret(name, value);
+}
+
+/**
+ * `text` with every recorded secret replaced by `[redacted NAME]`, in each form output can carry
+ * it: as typed, URL-encoded (a page URL), regex-escaped (a clickRole pattern) and JSON-escaped.
+ * Longest first, so a secret that contains another is replaced whole.
+ */
+export function redact(text) {
+  let out = String(text);
+  const forms = [];
+  for (const [value, name] of secrets)
+    for (const form of new Set([
+      value,
+      encodeURIComponent(value),
+      encodeURI(value),
+      escapeRegex(value),
+      // A RegExp prints its source with `/` escaped: Playwright's call log of a role name.
+      escapeRegex(value).replaceAll('/', '\\/'),
+      JSON.stringify(value).slice(1, -1),
+    ]))
+      forms.push([form, name]);
+  forms.sort((a, b) => b[0].length - a[0].length);
+  for (const [form, name] of forms)
+    out = out.split(form).join(`[redacted ${name}]`);
+  return out;
+}
+
+/**
  * `${VAR}` from the environment, so no inventory commits one account's ids. A missing variable
  * throws: typing a literal `${ID}` into a search box photographs an empty list as a reached cell.
- * With `forRegex`, the value is escaped, since `clickRole.name` is a pattern.
+ * With `forRegex`, the value is escaped, since `clickRole.name` and `waitDialog` are patterns. With
+ * `forPath`, a value that would change the URL's query or fragment throws: the cell would load
+ * another page, and the redirect check compares paths only.
+ * Every value expanded is recorded for `redact`.
  */
 export function expand(
   value,
   where,
   env = process.env,
-  { forRegex = false } = {},
+  { forRegex = false, forPath = false } = {},
 ) {
   return String(value ?? '').replace(/\$\{(\w+)\}/g, (_, name) => {
     const found = env[name];
     if (!found) throw new Error(`${where} needs ${name} in the environment`);
-    return forRegex ? found.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : found;
+    addSecret(name, found);
+    if (forPath && /[?#\\\s]/.test(found))
+      throw new Error(
+        `${where}: ${name} holds a ?, #, \\ or space, which would change the URL rather than fill a path`,
+      );
+    return forRegex ? escapeRegex(found) : found;
   });
 }
 
@@ -315,11 +527,12 @@ export function baseUrlError(raw, { productionUrl } = {}) {
 }
 
 const escapeHtml = (s) =>
-  String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  redact(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
 /**
  * The sheet page: every shot as a captioned figure, inlined as data URIs (the sheet is built on
  * about:blank, a different origin from any file:// path). `shots` are `{ label, size, note, data }`.
+ * Every text on it is redacted as well as escaped.
  */
 export function sheetHtml(feature, shots, origin = '') {
   const cards = shots

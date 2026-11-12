@@ -5,11 +5,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  addSecret,
   baseUrlError,
   expand,
   inventoryErrors,
+  redact,
+  registerSecretEnv,
+  registerSecrets,
   sharesErrors,
   sheetHtml,
+  themeErrors,
   widthErrors,
 } from './inventory.mjs';
 
@@ -275,4 +280,268 @@ test('the sheet escapes labels and notes, and marks a cell with no screenshot', 
   assert.ok(html.includes('&#60;Feat&#62;'));
   assert.ok(html.includes('no screenshot'));
   assert.ok(html.includes('data:image/png;base64,AAAA'));
+});
+
+// A fake invite token: never a real one. Each test uses its own value, since the registry is
+// process-wide.
+const FAKE = 'fake-INVITE-tok3n/with+chars?&=';
+
+test('redact: an expanded value is scrubbed as typed, URL-encoded, regex-escaped and JSON-escaped', () => {
+  const env = { CC_CREW_INVITE_TOKEN: FAKE };
+  const url = expand('/invite/${CC_CREW_INVITE_TOKEN}', 'goto', env);
+  const pattern = expand('^${CC_CREW_INVITE_TOKEN}$', 'name', env, {
+    forRegex: true,
+  });
+  for (const leak of [
+    `page.goto: Timeout navigating to "https://x.test${url}"`,
+    `landed on /invite/${encodeURIComponent(FAKE)}`,
+    // As Playwright prints it: a RegExp's source escapes the token's `/` as `\/`.
+    `waiting for getByRole('button', { name: ${String(new RegExp(pattern))} })`,
+    JSON.stringify({ token: FAKE }),
+  ]) {
+    const out = redact(leak);
+    assert.ok(!out.includes('INVITE-tok3n'), out);
+    assert.match(out, /\[redacted CC_CREW_INVITE_TOKEN\]/);
+  }
+});
+
+test('registerSecrets: every ${VAR} anywhere in the inventory is scrubbed before any step expands it', () => {
+  const env = { DECK_SECRET: 'fake-deck-0042x', UNUSED: 'never-mentioned' };
+  registerSecrets(
+    inv({
+      cookies: [{ name: 'k', value: 'a${DECK_SECRET}' }],
+      rows: [row({ steps: [{ goto: '/d/${MISSING}' }] })],
+    }),
+    env,
+  );
+  assert.equal(redact('err fake-deck-0042x'), 'err [redacted DECK_SECRET]');
+  // Only named variables are secrets, and a missing one registers nothing.
+  assert.equal(redact('never-mentioned'), 'never-mentioned');
+});
+
+test('redact: the longer of two overlapping secrets is replaced whole', () => {
+  addSecret('SHORT', 'fake-abc');
+  addSecret('LONG', 'fake-abc-def');
+  assert.equal(
+    redact('fake-abc-def fake-abc'),
+    '[redacted LONG] [redacted SHORT]',
+  );
+});
+
+test('the sheet redacts every text on it', () => {
+  addSecret('SHEET_TOKEN', 'fake-sheet-9f8e7d');
+  const html = sheetHtml('Invites', [
+    {
+      label: 'invite',
+      size: 'phone',
+      note: 'goto /invite/${X} landed on /invite/fake-sheet-9f8e7d/',
+      data: null,
+    },
+  ]);
+  assert.ok(!html.includes('fake-sheet-9f8e7d'));
+  assert.match(html, /redacted SHEET_TOKEN/);
+});
+
+test('themes: label, a way to select the theme, and known keys only', () => {
+  assert.deepEqual(
+    themeErrors(
+      [
+        {
+          label: 'light',
+          storage: { 'cc-theme': 'light' },
+          dataTheme: 'light',
+        },
+        { label: 'electric', colorScheme: 'dark', dataTheme: 'electric' },
+        {
+          label: 'jade',
+          cookies: [{ name: 'theme', value: 'jade' }],
+          dataTheme: 'jade',
+        },
+      ],
+      'inventory',
+    ),
+    [],
+  );
+  assert.match(themeErrors([], 'x').join(), /non-empty/);
+  assert.match(
+    themeErrors([{ label: 'Dark', colorScheme: 'dark' }], 'x').join(),
+    /lowercase/,
+  );
+  assert.match(
+    themeErrors([{ label: 'dark' }], 'x').join(),
+    /draws the default/,
+  );
+  assert.match(
+    themeErrors(
+      [
+        { label: 'a', colorScheme: 'dark' },
+        { label: 'a', colorScheme: 'dark' },
+      ],
+      'x',
+    ).join(),
+    /twice/,
+  );
+  const bad = themeErrors(
+    [
+      {
+        label: 'a',
+        colorScheme: 'dim',
+        storage: { k: 1 },
+        cookies: [{ name: 'x' }],
+        dataTheme: '',
+        colour: 'x',
+      },
+    ],
+    'x',
+  ).join();
+  for (const m of [
+    /colorScheme/,
+    /storage/,
+    /cookies/,
+    /dataTheme/,
+    /unknown key "colour"/,
+  ])
+    assert.match(bad, m);
+  assert.deepEqual(
+    errs(
+      inv({ themes: [{ label: 'a', colorScheme: 'dark', dataTheme: 'a' }] }),
+    ),
+    [],
+  );
+  assert.match(
+    errs(inv({ themes: [{ label: 'a' }] })).join(),
+    /draws the default/,
+  );
+});
+
+test('goto: expectStatus is an HTTP status, expectRedirect a path; neither without goto', () => {
+  const step = (s) => errs(inv({ rows: [row({ steps: [s] })] })).join();
+  assert.equal(step({ goto: '/nope', expectStatus: 404, wait: 'h1' }), '');
+  assert.equal(step({ goto: '/app', expectRedirect: '/sign-in' }), '');
+  assert.match(step({ goto: '/nope', expectStatus: '404' }), /expectStatus/);
+  assert.match(step({ goto: '/nope', expectStatus: 302 }), /expectStatus/);
+  assert.match(
+    step({ goto: '/app', expectRedirect: 'sign-in' }),
+    /expectRedirect/,
+  );
+  assert.match(
+    errs(
+      inv({
+        rows: [
+          row({ steps: [{ goto: '/' }, { wait: 'h1', expectStatus: 404 }] }),
+        ],
+      }),
+    ).join(),
+    /"expectStatus" belongs with "goto"/,
+  );
+});
+
+test('route: a glob with a status, a body or both; it may come before the goto', () => {
+  const steps = (s) => errs(inv({ rows: [row({ steps: s })] })).join();
+  assert.equal(
+    steps([
+      { route: '**/api/feed', status: 500 },
+      { goto: '/', wait: 'h1' },
+    ]),
+    '',
+  );
+  assert.equal(
+    steps([{ route: '**/api/feed', body: { items: [] }, goto: '/' }]),
+    '',
+  );
+  assert.match(steps([{ route: '**/api/x' }, { goto: '/' }]), /answers with/);
+  assert.match(
+    steps([{ route: '', status: 200 }, { goto: '/' }]),
+    /"route" takes a non-empty/,
+  );
+  assert.match(
+    steps([{ route: '**/x', status: 99 }, { goto: '/' }]),
+    /"status" is an HTTP status/,
+  );
+  assert.match(
+    steps([{ goto: '/', status: 200 }]),
+    /"status" belongs with "route"/,
+  );
+  // A route first does not excuse the row from loading its own route.
+  assert.match(
+    steps([{ route: '**/x', status: 204 }, { wait: 'h1' }]),
+    /first step loads/,
+  );
+});
+
+test('waitDialog and clickRole name are regexes, and an invalid one fails before a run', () => {
+  const steps = (s) =>
+    errs(inv({ rows: [row({ steps: [{ goto: '/' }, s] })] })).join();
+  assert.equal(steps({ waitDialog: '^Filters$' }), '');
+  assert.equal(steps({ waitDialog: 'Invite ${NAME}' }), '');
+  assert.match(
+    steps({ waitDialog: 'Filters (' }),
+    /"waitDialog" is not a valid regex/,
+  );
+  assert.match(
+    steps({ clickRole: 'button', name: '[' }),
+    /"name" is not a valid regex/,
+  );
+});
+
+test('themes: dataTheme is required, and theme values are literal', () => {
+  assert.match(
+    themeErrors(
+      [{ label: 'jade', cookies: [{ name: 't', value: 'jade' }] }],
+      'x',
+    ).join(),
+    /dataTheme/,
+  );
+  assert.match(
+    themeErrors(
+      [{ label: 'jade', storage: { t: '${THEME}' }, dataTheme: 'jade' }],
+      'x',
+    ).join(),
+    /literal/,
+  );
+});
+
+test('goto: a 3xx is never a final status, so expectStatus refuses it', () => {
+  const step = (s) => errs(inv({ rows: [row({ steps: [s] })] })).join();
+  assert.match(step({ goto: '/a', expectStatus: 301 }), /expectStatus/);
+  assert.equal(step({ goto: '/a', expectStatus: 200 }), '');
+  assert.equal(step({ goto: '/a', expectStatus: 503 }), '');
+});
+
+test('clickRole: an empty name would match every element of the role, so it fails', () => {
+  const e = errs(
+    inv({
+      rows: [
+        row({ steps: [{ goto: '/' }, { clickRole: 'button', name: '' }] }),
+      ],
+    }),
+  );
+  assert.match(e.join(), /"name" takes a non-empty pattern/);
+});
+
+test('expand forPath: a value that would change the query or fragment throws, naming only the variable', () => {
+  assert.equal(
+    expand('/i/${T}', 'goto', { T: 'fake-ok_1' }, { forPath: true }),
+    '/i/fake-ok_1',
+  );
+  for (const bad of ['fake?x=1', 'fake#frag', 'fake tok', 'fake\\x'])
+    assert.throws(
+      () => expand('/i/${T}', 'goto', { T: bad }, { forPath: true }),
+      (e) => /T holds a \?/.test(e.message) && !e.message.includes(bad),
+    );
+});
+
+test('registerSecretEnv: a credential-named variable is scrubbed though no inventory names it', () => {
+  registerSecretEnv({
+    CC_SESSION_COOKIE: 'fake-ck-271828',
+    CC_API_KEY: 'fake-key-161803',
+    NODE_ENV: 'development',
+    SHORT_TOKEN: '1',
+  });
+  assert.equal(
+    redact('bad login fake-ck-271828 with fake-key-161803'),
+    'bad login [redacted CC_SESSION_COOKIE] with [redacted CC_API_KEY]',
+  );
+  // Not a credential by name, or too short to scrub from every line.
+  assert.equal(redact('development 1 of 3'), 'development 1 of 3');
 });
