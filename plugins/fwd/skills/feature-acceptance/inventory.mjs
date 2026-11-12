@@ -309,6 +309,16 @@ function stepErrors(step, at) {
   ])
     if (keys.includes(verb) && (typeof step[verb] !== 'string' || !step[verb]))
       errors.push(`${at}: "${verb}" takes a non-empty string`);
+  // A bare element name ("h1", "main", "table") is drawn by the loading skeleton and the signed-out
+  // shell too, so the wait passes before the content arrives and the cell photographs nothing real.
+  if (
+    keys.includes('wait') &&
+    typeof step.wait === 'string' &&
+    /^[a-z][a-z0-9-]*$/i.test(step.wait.trim())
+  )
+    errors.push(
+      `${at}: "wait" on a bare "${step.wait.trim()}" passes on a loading skeleton; wait for the content itself (a data-testid, a role and name, or its text)`,
+    );
   if (
     keys.includes('goto') &&
     typeof step.goto === 'string' &&

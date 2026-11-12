@@ -211,6 +211,27 @@ export async function checkTheme(page, theme) {
     );
 }
 
+/** What a page still loading shows, unless featureAcceptance.loading names the project's own. */
+export const DEFAULT_LOADING = ['[aria-busy="true"]'];
+
+/**
+ * Fails the cell when a loading marker is still visible after the row's steps: a cell that
+ * photographs a skeleton has no evidence in it, and its wait passing does not make it real.
+ */
+export async function checkLoaded(page, markers) {
+  for (const marker of markers)
+    if (
+      await page
+        .locator(marker)
+        .first()
+        .isVisible()
+        .catch(() => false)
+    )
+      throw new Error(
+        `still loading: ${marker} is visible after the steps; wait for the content`,
+      );
+}
+
 /**
  * Routes console.log, info, warn and error through `redact` until the returned restore is called:
  * the project's sign-in module and anything it imports print through the same console.
@@ -294,6 +315,14 @@ async function photograph() {
       `${inventoryPath} is not runnable:\n  - ${problems.join('\n  - ')}`,
     );
   const scope = cfg.pageScope ?? 'main';
+  const loading = cfg.loading ?? DEFAULT_LOADING;
+  if (
+    !Array.isArray(loading) ||
+    loading.some((m) => typeof m !== 'string' || !m)
+  )
+    throw new SetupError(
+      'featureAcceptance.loading is a list of selectors a page still loading shows ([] for none)',
+    );
   let cookies = [];
   try {
     cookies = (inventory.cookies ?? []).map((c) => ({
@@ -380,6 +409,7 @@ async function photograph() {
               for (const step of row.steps)
                 await runStep(page, step, { base, scope });
               await checkTheme(page, theme);
+              await checkLoaded(page, loading);
               await page.screenshot({
                 path: file,
                 fullPage: row.fullPage ?? inventory.fullPage ?? false,

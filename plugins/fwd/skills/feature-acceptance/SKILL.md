@@ -197,22 +197,23 @@ shell a step must avoid, and where the contact sheet goes in a PR.
 
 **`featureAcceptance` in `.claude/fwd.json`** (read by the tools):
 
-| Field             | Required by                 | Meaning                                                                                                                                                                          |
-| ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `baseUrl`         | contact sheet               | The origin to photograph by default: the local dev server (`http://localhost:3000`) for pre-PR sheets. `--base` or `CONTACT_SHEET_BASE` override it (staging for audits).        |
-| `productionUrl`   | contact sheet               | Optional. The production origin, or a list of every production origin (apex, `www`, other domains); each is refused as a base.                                                   |
-| `widths`          | contact sheet               | `[{ "label": "phone", "width": 390, "height": 844 }, { "label": "desktop", "width": 1300, "height": 900 }]`; `touch: true` optional                                              |
-| `themes`          | contact sheet               | Optional. The sheet is photographed once per theme, each in a fresh context; `dataTheme` required (see the inventory's `themes`). Without it every cell draws the default theme. |
-| `signIn`          | contact sheet               | Project-relative module exporting `signIn(page, { baseUrl })`; throws on failure. Unneeded if every inventory is `signedOut`.                                                    |
-| `pageScope`       | contact sheet               | Selector page content lives in (default `main`), so a step never matches the app shell. `""` for none.                                                                           |
-| `inventories`     | agents                      | Folder of inventory JSON files, e.g. `docs/superpowers/inventories`.                                                                                                             |
-| `out`             | contact sheet               | Output folder (default `contact-sheets`, gitignore it). One subfolder per inventory.                                                                                             |
-| `packageDir`      | contact sheet, check-shared | A folder, or a list searched in order, whose `node_modules` has Playwright and TypeScript (a monorepo's apps, e.g. `["apps/e2e", "apps/web"]`). The root is searched last.       |
-| `aliases`         | check-shared                | Import aliases to project-relative folders, e.g. `{ "@/": "src/" }`.                                                                                                             |
-| `tokens.declare`  | check-tokens                | Globs of theme files; every `--x:` there is declared for the whole app.                                                                                                          |
-| `tokens.read`     | check-tokens                | Globs whose `var(--x)` reads must resolve (test files are skipped).                                                                                                              |
-| `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                                                             |
-| `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                                                                            |
+| Field             | Required by                 | Meaning                                                                                                                                                                                |
+| ----------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`         | contact sheet               | The origin to photograph by default: the local dev server (`http://localhost:3000`) for pre-PR sheets. `--base` or `CONTACT_SHEET_BASE` override it (staging for audits).              |
+| `productionUrl`   | contact sheet               | Optional. The production origin, or a list of every production origin (apex, `www`, other domains); each is refused as a base.                                                         |
+| `widths`          | contact sheet               | `[{ "label": "phone", "width": 390, "height": 844 }, { "label": "desktop", "width": 1300, "height": 900 }]`; `touch: true` optional                                                    |
+| `themes`          | contact sheet               | Optional. The sheet is photographed once per theme, each in a fresh context; `dataTheme` required (see the inventory's `themes`). Without it every cell draws the default theme.       |
+| `signIn`          | contact sheet               | Project-relative module exporting `signIn(page, { baseUrl })`; throws on failure. Unneeded if every inventory is `signedOut`.                                                          |
+| `pageScope`       | contact sheet               | Selector page content lives in (default `main`), so a step never matches the app shell. `""` for none.                                                                                 |
+| `loading`         | contact sheet               | Selectors a page still loading shows (default `["[aria-busy=\"true\"]"]`). A cell fails while one is visible after its steps, so a skeleton never passes as the screen. `[]` for none. |
+| `inventories`     | agents                      | Folder of inventory JSON files, e.g. `docs/superpowers/inventories`.                                                                                                                   |
+| `out`             | contact sheet               | Output folder (default `contact-sheets`, gitignore it). One subfolder per inventory.                                                                                                   |
+| `packageDir`      | contact sheet, check-shared | A folder, or a list searched in order, whose `node_modules` has Playwright and TypeScript (a monorepo's apps, e.g. `["apps/e2e", "apps/web"]`). The root is searched last.             |
+| `aliases`         | check-shared                | Import aliases to project-relative folders, e.g. `{ "@/": "src/" }`.                                                                                                                   |
+| `tokens.declare`  | check-tokens                | Globs of theme files; every `--x:` there is declared for the whole app.                                                                                                                |
+| `tokens.read`     | check-tokens                | Globs whose `var(--x)` reads must resolve (test files are skipped).                                                                                                                    |
+| `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                                                                   |
+| `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                                                                                  |
 
 The project installs Playwright (and its Chromium) and TypeScript itself; the kit adds no
 dependency. The sign-in module reads its credentials from the environment and never prints them.
@@ -264,7 +265,13 @@ both validate it, and refuse it rather than run part of it.
       "id": "not-found",
       "label": "an unknown project, 404 page",
       "view": "src/app/projects/view.tsx",
-      "steps": [{ "goto": "/projects/nope", "expectStatus": 404, "wait": "h1" }]
+      "steps": [
+        {
+          "goto": "/projects/nope",
+          "expectStatus": 404,
+          "wait": "[data-testid=\"not-found\"]"
+        }
+      ]
     }
   ]
 }
@@ -295,7 +302,7 @@ both validate it, and refuse it rather than run part of it.
   dialog's accessible name, like `name`: `^Filters$` for an exact match; before 0.1.30 it was
   exact, so anchor the names older inventories wrote), `hover`, `back`,
   `offline`, `pressKey`, `settle` (ms), `scrollTo`, `scroll` (pixels or `"bottom"`). Put verbs that
-  must run in another order in separate steps. Selectors are scoped to `pageScope`; `waitDialog`
+  must run in another order in separate steps. A `wait` names the content itself (a `data-testid`, a role and name, or its text), never a bare element such as `h1` or `main`: the loading skeleton draws those too, so the validator refuses them. Selectors are scoped to `pageScope`; `waitDialog`
   is not, since dialogs portal outside it. An unknown verb is an error, never a step that silently
   does nothing, and an invalid `name` or `waitDialog` pattern fails before a browser starts.
 - **`route`** is a Playwright URL glob (`${VAR}` expanded); matching requests for the rest of the row are answered
