@@ -95,7 +95,7 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   and remove your worktrees (lane §2).
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
-STOPPING POINT: <"merged and production health OK" | "plan sent to me" | "report before building">
+STOPPING POINT: <"merged, and production proven (`orchestrator` §3: the domain serves the new deployment and a database-backed request works)" | "plan sent to me" | "report before building">
 ```
 
 A restart prompt uses the same template: the handoff's path goes in EVIDENCE and its exact next

@@ -88,6 +88,14 @@ to a log, which can never wake a session.
   the Monitor tool, or a Bash `run_in_background` `until` loop that exits when the review lands
   (the review count or the latest review's `commit_id` changes) **or** CI reaches any terminal
   state (success, failure, cancelled).
+- Key the wait on the PR, never on a commit captured before a push: each poll re-reads the PR's
+  current head and the checks on that head (`pr-watch.mjs` does). A watcher pinned to the old
+  head waits on checks that will never change, and lanes have sat idle for hours that way.
+- **With a merge queue,** `gh pr merge` only adds the PR to the queue. The PR is done when its
+  state reads `MERGED`. `pr-watch.mjs` does not watch the queue, so wait with a background
+  `until` loop on `gh pr view <n> --json state` that exits on `MERGED` or `CLOSED`, with the usual
+  timeout. If it times out with the PR still `OPEN`, the queue may have ejected it: read the
+  queue's run for the PR, and treat a failure there as a failed check (fix, push, merge again).
 - Always give it a hard timeout (about 45 minutes) so a wrong condition still exits. Set any
   baseline count before you request the review, not after.
 - Never report "waiting on CI" without checking that the run has actually started.

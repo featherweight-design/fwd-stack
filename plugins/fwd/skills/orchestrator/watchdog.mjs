@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { pluginDataDir } from '../../lib/plugin-data.mjs';
-import { stalledPrs, unreported } from './watchdog-core.mjs';
+import { heldPrs, stalledPrs, unreported } from './watchdog-core.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, dflt) => {
@@ -32,6 +32,8 @@ const interval = Number(flag('interval', 120)) * 1000;
 // gh lists 30 by default, drafts included. Ask for far more, and treat a full page as a partial
 // list the orchestrator must hear about rather than a complete one.
 const LIMIT = 1000;
+// The latest poll's list, for the held-PR lines in a report.
+let lastPrs = [];
 const openPrs = () => {
   const prs = JSON.parse(
     execFileSync(
@@ -42,7 +44,7 @@ const openPrs = () => {
         '--state',
         'open',
         '--json',
-        'number,title,updatedAt,isDraft,headRefName',
+        'number,title,updatedAt,isDraft,headRefName,labels',
         '--limit',
         String(LIMIT),
         ...(repo ? ['--repo', repo] : []),
@@ -55,6 +57,7 @@ const openPrs = () => {
       `${LIMIT}+ open PRs: the list is truncated, so stalls past it are unchecked`,
       [],
     );
+  lastPrs = prs;
   return prs;
 };
 
@@ -79,6 +82,10 @@ const report = (why, stalled) => {
   for (const p of stalled)
     lines.push(
       `  #${p.number} quiet ${p.quietMinutes}m: ${p.title} (${p.headRefName})`,
+    );
+  for (const p of heldPrs(lastPrs, Date.now()))
+    lines.push(
+      `  held #${p.number} quiet ${Math.floor(p.quietMinutes / 60)}h: ${p.title}`,
     );
   exiting = true;
   // The wake is also the roadmap's stale-check benchmark (orchestrator skill §4).
