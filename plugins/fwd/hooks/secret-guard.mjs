@@ -13,6 +13,11 @@
 //     heredoc fed to one) that touches the environment, unless every touch only tests presence:
 //     `Boolean(process.env.X)`, `!!process.env.X`, `'X' in process.env`, `bool(os.getenv('X'))`;
 //   - reading `/proc/<pid>/environ` or `/proc/<pid>/cmdline`;
+//   - reading or sending a stored CLI login (Claude Code's `.credentials.json`, `~/.aws/credentials`,
+//     `.netrc`, `.git-credentials`, `.pypirc`, `gh/hosts.yml`, `.docker/config.json`), from any
+//     command but a metadata one or from inline code, or printing a keychain password with
+//     `security find-generic-password -w`/`-g`, `dump-keychain -d` or `export` without `-o`;
+//   - a recursive `grep -r` or any `rg` over a folder that holds one of those, whatever its filters;
 //   - a recursive `grep -r` (or `rg --hidden`/`-uu`) over a folder that holds a `.env` file,
 //     unless `--exclude`/`--include` (or an `rg -g` glob) keeps .env files out;
 //   - `echo`/`printf` of a variable whose name marks it secret (`$API_KEY`, `$DATABASE_URL`,
@@ -330,6 +335,61 @@ export function isSecretEnvFile(path) {
   return b.startsWith('.env') && !TEMPLATE_SUFFIX.test(b);
 }
 const PROC_SECRET = /^\/proc\/[^/]+\/(environ|cmdline)$/;
+// Stored CLI logins: a live account token sits in each of these, so printing one leaks it.
+// Claude Code's `.credentials.json` (Linux, or a custom CLAUDE_CONFIG_DIR), AWS, git, netrc, PyPI,
+// GitHub CLI and Docker. Matched on the path's tail, case-folded; a glob in the last segment counts
+// when it could expand to one (`.cred*`, `*.json` beside a known folder).
+const CREDENTIAL_TAILS = [
+  ['.credentials.json'],
+  ['.netrc'],
+  ['.git-credentials'],
+  ['.pypirc'],
+  ['.aws', 'credentials'],
+  ['gh', 'hosts.yml'],
+  ['.docker', 'config.json'],
+];
+const globRe = (seg) =>
+  new RegExp(
+    `^${seg
+      .replace(/[.+^${}()|\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.')}$`,
+  );
+const segMatches = (seg, name) =>
+  seg === name || (/[*?]/.test(seg) && globRe(seg).test(name));
+let cwdNow = null; // the caller's working directory, for a relative path
+export function isCredentialFile(word, cwd = cwdNow) {
+  let raw = String(word)
+    .replace(/^@/, '')
+    .replace(/^--?[A-Za-z][\w-]*=/, '');
+  // A relative name typed from inside the folder (`cat credentials` in ~/.aws) still names the file.
+  if (cwd && !/^[/~$]/.test(raw)) raw = `${cwd}/${raw}`;
+  const path = raw.toLowerCase();
+  const parts = path.split('/').filter(Boolean);
+  return CREDENTIAL_TAILS.some((tail) => {
+    if (parts.length < tail.length) return false;
+    const end = parts.slice(-tail.length);
+    // Folders in the tail must match exactly; only the file name may be a glob.
+    return tail.every((name, k) =>
+      k === tail.length - 1 ? segMatches(end[k], name) : end[k] === name,
+    );
+  });
+}
+// Commands that look at a file without printing what is in it.
+const CREDENTIAL_SAFE = new Set([
+  'ls',
+  'stat',
+  'test',
+  '[',
+  'file',
+  'du',
+  'chmod',
+  'chown',
+  'rm',
+  'touch',
+]);
+const SAFE_CRED =
+  "A stored login is a live token. To check you are signed in, run the CLI's own status command (e.g. `claude auth status`) instead.";
 
 // Walks a command's arguments. `valueOpts` are short letters (or long names) whose value is the
 // next word unless attached. Returns positionals and the option values seen.
@@ -631,6 +691,10 @@ const ROOTISH = new Set([
 // Set by secretDecision for one call: (dir) => true | false | null, whether a folder holds a .env
 // file (null when it cannot tell). Without one, the guard assumes a root-like or absolute path,
 // or one built from a variable, holds one, and a relative subfolder does not.
+let credentialProbe = null;
+// Only an answer from the caller counts: unlike .env files, there is no fail-closed guess.
+const holdsCredentialFile = (root) => credentialProbe?.(root) === true;
+
 let envProbe = null;
 function holdsEnvFile(root) {
   const known = envProbe?.(root);
@@ -694,6 +758,14 @@ function readerRule(name, args, redirects) {
     (flags.includes('hidden') ||
       args.some((a) => /^-[a-zA-Z]*u[a-zA-Z]*u/.test(a)) ||
       flags.includes('.'));
+  // A folder that holds a stored login is refused whatever the filters: an include or exclude
+  // aimed at .env files does not keep the login file out, and plain rg searches a named root's
+  // visible files (~/.aws/credentials, gh/hosts.yml).
+  if (
+    (recursive || name === 'rg') &&
+    (afterPattern().length ? afterPattern() : ['.']).some(holdsCredentialFile)
+  )
+    return `a recursive \`${name}\` over a folder that holds a stored login prints its token lines. Search the files you mean by name instead. ${SAFE_CRED}`;
   if (recursive || hiddenRg) {
     const globs = values.filter(
       (v) => v.opt === 'include' || pf.globOpts?.includes(v.opt),
@@ -743,6 +815,83 @@ function dumpRule(name, args) {
     if (args.some((a) => /^[-+][a-zA-Z]*[fF]/.test(a))) return null;
     return `\`${name}\` with no names prints every variable and its value. ${SAFE_DUMP}`;
   }
+  return null;
+}
+
+// Any command but a metadata one, given a stored login file as an argument or a redirect, can print
+// or send its token (`cat`, `jq`, `openssl -in`, `curl -d @file`).
+function credentialRule(name, args, redirects) {
+  const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
+  if (sources.some(isCredentialFile))
+    return `feeding a stored login file into a command can print its token. ${SAFE_CRED}`;
+  if (!CREDENTIAL_SAFE.has(name) && args.some(isCredentialFile))
+    return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
+  return null;
+}
+
+// macOS keychain, where Claude Code and other CLIs keep their logins on a Mac:
+// `security find-generic-password -w` (or `-g`) prints the stored password, `dump-keychain -d`
+// prints every one, and `export` without `-o` writes keys to stdout. Global options before the
+// subcommand (`-q`, `-v`, `-p <prompt>`) are skipped, and option values are not read as flags.
+const SECURITY_GLOBAL_VALUES = new Set(['p']);
+// Option letters that take a value, per subcommand. Kept as letter lists: a secret scanner reads
+// a "...-password" key mapped to a short string as a hardcoded password.
+const SECURITY_VALUES = {
+  'find-generic-password': ['a', 'c', 'C', 'D', 'G', 'j', 'l', 'r', 's', 't'],
+  'find-internet-password': [
+    'a',
+    'c',
+    'C',
+    'D',
+    'd',
+    'l',
+    'p',
+    'r',
+    'P',
+    's',
+    't',
+    'S',
+  ],
+  'dump-keychain': [],
+  export: ['k', 't', 'f', 'P', 'o'],
+};
+// The short flags of `args`, with every option's value (attached or next word) skipped.
+function securityFlags(args, valueLetters) {
+  const flags = [];
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k];
+    if (!/^-[a-zA-Z]/.test(a)) continue;
+    for (let j = 1; j < a.length; j++) {
+      const f = a[j];
+      flags.push(f);
+      if (valueLetters.includes(f)) {
+        if (j === a.length - 1) k++; // the value is the next word
+        break; // the rest of this word is the value
+      }
+    }
+  }
+  return flags;
+}
+function keychainRule(name, args) {
+  if (name !== 'security') return null;
+  let i = 0;
+  while (i < args.length && args[i].startsWith('-')) {
+    if (args[i] === '--') {
+      i++;
+      break;
+    }
+    const last = args[i][args[i].length - 1];
+    i += SECURITY_GLOBAL_VALUES.has(last) && args[i].length === 2 ? 2 : 1;
+  }
+  const sub = args[i];
+  if (!(sub in SECURITY_VALUES)) return null;
+  const flags = securityFlags(args.slice(i + 1), SECURITY_VALUES[sub]);
+  if (sub.startsWith('find-') && flags.some((f) => f === 'w' || f === 'g'))
+    return `\`security ${sub}\` with -w or -g prints the stored password into the transcript. To check an item exists, run it without -w or -g, which prints only its attributes.`;
+  if (sub === 'dump-keychain' && flags.includes('d'))
+    return '`security dump-keychain -d` prints every stored secret into the transcript. Run it without -d to list items by their attributes.';
+  if (sub === 'export' && !flags.includes('o'))
+    return '`security export` without -o writes the exported keys to the transcript. Write them to a file with -o instead.';
   return null;
 }
 
@@ -847,10 +996,15 @@ const CODE_ENV_FILE = new RegExp(
   `['"\`](?:[^'"\`\\s]*/)?\\.env(?!\\.(?:example|sample|template|dist)['"\`])[\\w.-]*['"\`]`,
 );
 
+const CODE_CREDENTIAL_FILE =
+  /\.credentials\.json|\.git-credentials|\.netrc\b|\.pypirc|\.aws\/credentials|gh\/hosts\.yml|\.docker\/config\.json/i;
+
 export function codeReason(code, lang) {
   const spec = LANGS[lang];
   if (/\/proc\/[^'"`\s]*\/(?:environ|cmdline)/.test(code))
     return `inline code that reads a process's environment or command line prints its secrets. ${SAFE_PROC}`;
+  if (CODE_CREDENTIAL_FILE.test(code))
+    return `inline code that opens a stored login file can print its token. ${SAFE_CRED}`;
   if (CODE_ENV_FILE.test(code))
     return `inline code that opens a .env file can print its values. ${SAFE_FILE}`;
   let rest = code;
@@ -974,6 +1128,8 @@ function judgeSegment(seg, depth) {
   const reason =
     dumpRule(name, args) ??
     readerRule(name, args, seg.redirects) ??
+    credentialRule(name, args, seg.redirects) ??
+    keychainRule(name, args) ??
     processRule(name, args);
   if (reason) return reason;
 
@@ -1032,12 +1188,18 @@ function judge(command, depth = 0) {
 // Returns a denial reason, or null when the command is allowed.
 // `options.hasEnvFile(dir)` lets the caller say whether a folder holds a .env file (true or
 // false), or null when it cannot tell.
+// `options.hasCredentialFile(dir)` says the same for a stored login file, and `options.cwd` is
+// the folder a relative path is read from.
 export function secretDecision(command, options = {}) {
   if (typeof command !== 'string' || !command.trim()) return null;
   envProbe = options.hasEnvFile ?? null;
+  credentialProbe = options.hasCredentialFile ?? null;
+  cwdNow = options.cwd ?? null;
   try {
     return judge(command);
   } finally {
     envProbe = null;
+    credentialProbe = null;
+    cwdNow = null;
   }
 }
