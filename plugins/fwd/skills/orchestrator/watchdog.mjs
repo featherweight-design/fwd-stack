@@ -6,7 +6,8 @@
 //     it went quiet (a state file in the plugin's data folder remembers, so a re-arm does not exit
 //     on the same PR again), or
 //   - the hourly heartbeat, so idle lanes with queued work get checked even when nothing stalls.
-// On every exit it prints the stalled PRs and the lane-context table. Re-arm it after acting.
+// On every exit it prints the stalled PRs, a roadmap stale-check reminder and the lane-context
+// table. Re-arm it after acting.
 // A foreground wait loop blocks the user's messages behind it; never run this in the foreground.
 //
 //   node watchdog.mjs [--repo owner/name] [--stall 30] [--heartbeat 60] [--interval 120]
@@ -80,6 +81,10 @@ const report = (why, stalled) => {
       `  #${p.number} quiet ${p.quietMinutes}m: ${p.title} (${p.headRefName})`,
     );
   exiting = true;
+  // The wake is also the roadmap's stale-check benchmark (orchestrator skill §4).
+  lines.push(
+    'roadmap: run the stale check (orchestrator §4, benchmark 6), if the project has one',
+  );
   process.stdout.write(`${lines.join('\n')}\n${laneTable()}`, () =>
     process.exit(0),
   );

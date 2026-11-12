@@ -3,7 +3,7 @@ name: orchestrator
 description: >-
   Use when this session is the orchestrator coordinating a project's lanes and subagents — triaging
   what the user brings, routing approved work, writing briefs, verifying lanes' claims at the system
-  of record, keeping a ruling log, watching for stalls, rotating lanes, scrutinising spend, and
+  of record, keeping a ruling log and the roadmap current, watching for stalls, rotating lanes, scrutinising spend, and
   reporting to the user. Not for doing the lanes' work itself. The operating model (lane or
   subagent, the lane cap, the brief) is the run-project skill.
 ---
@@ -84,12 +84,33 @@ that decides it:
 - **An audit:** which checkout it read. Once, a fresh lane audited a checkout five days stale.
 - **A suggested follow-up:** one grep or one read. "Worth a one-line fix" is a claim, not a task.
 
-## 4 · Keep a ruling log
+## 4 · Keep a ruling log and the roadmap
 
 The ruling log is a dated, append-only file. Each entry records the decision, who made it (the user,
 or the orchestrator inside approved scope), and the reason. Orchestrator decisions are marked
 "decided, override if you disagree". The log is the backbone of the run report and of the
 user's trust. `.claude/fwd/orchestrator.md` names its path.
+
+**The roadmap is updated at fixed benchmarks, not when you remember.** Where the project has a
+roadmap (epics, stories and the user's to-dos), `.claude/fwd/orchestrator.md` names where it lives
+and how to write it; this skill names none. The orchestrator writes only its own project's entries,
+the moment one of these happens:
+
+1. **A PR merges** (or opens) for a story: set the story's status and link the PR.
+2. **A ruling lands**, from the user or "decided, override if you disagree": close the to-do it
+   answers and update what it unblocked.
+3. **A new to-do for the user**: anything the user must decide or do gets a to-do at once, naming
+   what it holds up. Nothing the user owes may live only in chat or the ruling log.
+4. **A lane changes**: one opens, closes, rotates or changes its work item.
+5. **A hold or zone changes**: work is held, released, or moved before or after launch.
+6. **At each watchdog wake, a stale check**: list the project's open stories and to-dos by last
+   update, and fix any untouched for 24 hours whose facts have moved.
+7. **Before rotating out**: bring the roadmap current, then record in the handoff that it is
+   current as of that time.
+
+No secrets and no legal detail go on the roadmap; a legal item is a neutral title only. Never
+overwrite a field the user changed without telling them. A roadmap that lags the ruling log is a
+broken promise to the user, the same as a stale status.
 
 ## 5 · Lanes take orders from the orchestrator, and the orchestrator relays
 
@@ -155,6 +176,7 @@ nothing was watching.
   every lane the window is open; each lane arms its own guard for the same span.
 - **When the user returns,** clear the window (`away.mjs clear`), disarm the guard, and list the
   rotation candidates (below).
+- **Each watchdog wake also runs the roadmap stale check** (§4, benchmark 6).
 
 ## 7 · Measure context and rotate lanes
 
