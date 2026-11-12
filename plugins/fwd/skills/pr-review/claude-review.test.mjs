@@ -51,6 +51,43 @@ for (const placeholder of [
   'Reviewer: n/a',
   'The review is pending.',
   'None yet, will run after CI.',
+  // Review-status phrasing around the placeholder is still a placeholder.
+  'Review still pending.',
+  'Review: pending',
+  'cavecrew-reviewer: pending review',
+  'cavecrew-reviewer: review pending',
+  '/code-review medium is still pending',
+  'Claude review: not yet run',
+  'cavecrew-reviewer: not yet reviewed',
+  'The checklist pass is TBD.',
+  'Findings: TBD',
+  'Results still to do.',
+  // Any subject without a subordinate word keeps it a placeholder: the test fails closed.
+  'This review is still pending.',
+  'A review is pending.',
+  'Our review is pending.',
+  'Review of this PR is pending.',
+  "Claude's review is pending.",
+  '/code-review ultra is pending',
+  'The /code-review run is pending',
+  'Security review by cavecrew is pending',
+  'Review was not yet run.',
+  'Review has been TBD.',
+  'The review will be TBD.',
+  'cavecrew-reviewer: not reviewed yet',
+  'Review remains pending.',
+  // Time and condition words open status phrasing, not prose: still placeholders.
+  'Review after CI is pending.',
+  'Review since the last push is pending.',
+  'Review before merge is TBD.',
+  'Review as of this push is pending.',
+  'Review so far is pending',
+  'Code review once CI is green is pending',
+  'cavecrew-reviewer: run if needed is TBD',
+  'Review when CI is green is pending.',
+  'Review until the rebase lands is TBD.',
+  // A subordinate clause after a review-only subject is still about the review.
+  'The review that runs after CI is pending.',
 ]) {
   test(`a placeholder section is not a record: ${JSON.stringify(placeholder)}`, () => {
     assert.equal(claudeReviewState(body(placeholder)).recorded, false);
@@ -74,6 +111,16 @@ for (const record of [
   'No findings.',
   // A finding about a pending state is a record, not a placeholder.
   'cavecrew-reviewer: 1 Medium, the pending badge never clears. Fixed.',
+  // Prose whose clause ENDS on a placeholder word describes the code, not the review.
+  '/code-review medium: 1 Medium, the cleanup cancels a frame that is still pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the retry stays queued while the upload is pending. Fixed.',
+  'cavecrew-reviewer: 1 Medium, the export button showed while the label was TBD. Fixed.',
+  'cavecrew-reviewer: 1 Low, an empty country field rendered as n/a. Fixed.',
+  'cavecrew-reviewer: 1 Low, the banner stays up although the sync is not yet. Fixed.',
+  'cavecrew-reviewer: 1 Low, the sweep skipped items that are still to do. Fixed.',
+  'cavecrew-reviewer: 1 Medium, the poller drops a job which is still pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the row hides its owner whose invite is pending. Fixed.',
+  'cavecrew-reviewer: 1 Low, the toast fires because the save is pending. Fixed.',
 ]) {
   test(`a real record counts: ${JSON.stringify(record)}`, () => {
     assert.equal(claudeReviewState(body(record)).recorded, true);
@@ -161,6 +208,7 @@ for (const line of [
   '- **Checklist pass:** 1 Low, fixed.',
   '**Checklist pass**: NO FINDINGS',
   '> Checklist pass: 3 findings (0/1/1/1), all fixed.',
+  'Checklist pass: 1 Low, the cleanup cancels a frame that is still pending; fixed.',
 ]) {
   test(`a decorated checklist line counts: ${JSON.stringify(line)}`, () => {
     assert.equal(
@@ -203,6 +251,9 @@ for (const placeholder of [
   'Checklist pass:',
   'Checklist pass: <!-- after CI -->',
   'Checklist pass: not yet run',
+  'Checklist pass: still pending',
+  'Checklist pass: pending review',
+  'Checklist pass: run after CI is pending',
 ]) {
   test(`a placeholder checklist line is not a record: ${JSON.stringify(placeholder)}`, () => {
     const door = copilotOffDoor(

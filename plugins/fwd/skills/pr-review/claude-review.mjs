@@ -14,18 +14,57 @@
 //   - it is NOT a record when no clause is left, when the first clause opens with pending, tbd,
 //     tba, todo, to do or wip ("Pending: cavecrew-reviewer"), or when ANY clause is only a
 //     placeholder ("Reviewer: n/a", "cavecrew-reviewer: TBD", "None yet, will run after CI",
-//     "The review is pending.");
-//   - anything else is a record, so a finding that mentions a pending state still counts.
+//     "The review is pending.", "Review still pending", "pending review"). A clause ending
+//     "is pending" is a record only when a relative pronoun or clause conjunction (that, which,
+//     while, ...) opens it after a subject that is not about the review (describesCode below);
+//   - anything else is a record, so a finding that mentions a pending state still counts,
+//     including one whose clause ends on it ("cancels a frame that is still pending").
 
 const HEADING = /^##[ \t]+Claude review\b([^\n]*)$/im;
 
 const PLACEHOLDER_OPENER = /^(?:pending|tbd|tba|todo|to do|wip)\b/;
 const PLACEHOLDER =
-  '(?:pending|tbd|tba|todo|to do|wip|n a|na|none yet|not yet run|not run yet|not yet|coming soon|placeholder)';
-// A clause that is a placeholder alone, or says something "is pending" / "still TBD".
-const PLACEHOLDER_CLAUSE = new RegExp(
-  `^(?:(?:.+ )?(?:is|are|still|is still) )?${PLACEHOLDER}$`,
+  '(?:pending|tbd|tba|todo|to do|wip|n a|na|none yet|not yet run|not run yet|not yet reviewed|' +
+  'not reviewed yet|not yet|coming soon|placeholder)';
+const VERB =
+  '(?:is|are|was|were|is still|are still|was still|still|remains|remain|has been|have been|will be)';
+// The words a review-status subject is made of ("the review", "cavecrew-reviewer", "/code-review
+// medium", "checklist pass"), with the fillers that come before one ("this", "our", "Claude's").
+const STATUS_WORDS = new Set(
+  (
+    'the a an this our my its it s claude code review reviews reviewer reviewers cavecrew ' +
+    'checklist pass passes finding findings result results medium low high xhigh max ultra ' +
+    'copilot off security'
+  ).split(' '),
 );
+const STATUS_WORD = `(?:${[...STATUS_WORDS].join('|')})`;
+// A clause that is a placeholder alone, a subject that "is pending" / "still TBD", "review
+// pending", or "pending review".
+const PLACEHOLDER_CLAUSE = new RegExp(
+  `^(?:(?:.+ )?${VERB} ${PLACEHOLDER}` +
+    `|(?:${STATUS_WORD} )*${PLACEHOLDER}` +
+    `|${PLACEHOLDER}(?: ${STATUS_WORD})+)$`,
+);
+// The one way out for a clause that ends "<verb> pending": prose about the code, where a relative
+// pronoun or clause conjunction opens a subordinate clause after a subject that is not about the
+// review ("the cleanup cancels a frame that is still pending", "stays queued while the upload is
+// pending"). Time and condition words (after, before, since, once, if, when, until, as, so) are
+// left out on purpose: they open status phrasing ("Review after CI is pending"). Everything else
+// fails closed and stays a placeholder; a real finding can be phrased with one of these words.
+const SUBORDINATE =
+  /^(.+?) (?:that|which|while|whose|who|because|although|though|whereas|unless|whether) /;
+const describesCode = (clause) => {
+  const m = SUBORDINATE.exec(clause);
+  return !!m && m[1].split(' ').some((w) => !STATUS_WORDS.has(w));
+};
+const isPlaceholderClause = (clause) =>
+  PLACEHOLDER_CLAUSE.test(clause) && !describesCode(clause);
+
+/** Whether a section's clauses hold a real record: some clause, no placeholder opener or clause. */
+const isRecord = (parts) =>
+  parts.length > 0 &&
+  !PLACEHOLDER_OPENER.test(parts[0]) &&
+  !parts.some(isPlaceholderClause);
 
 /** The text a `## Claude review` record must hold, said where the gate refuses it. */
 export const RECORD_HINT =
@@ -58,10 +97,7 @@ export function sectionState(body, heading) {
   const rest = text.slice(m.index + m[0].length).split(/^#{1,2}[ \t]/m)[0];
   const own = `${m[1] ?? ''}\n${rest}`;
   const parts = clauses(own);
-  const recorded =
-    parts.length > 0 &&
-    !PLACEHOLDER_OPENER.test(parts[0]) &&
-    !parts.some((c) => PLACEHOLDER_CLAUSE.test(c));
+  const recorded = isRecord(parts);
   return {
     present: true,
     recorded,
@@ -120,11 +156,7 @@ export function copilotOffDoor(body) {
   const line = CHECKLIST.exec(section);
   const parts = line ? clauses(line[1]) : [];
   // The unfilled hint ("Checklist pass: <n> findings (C/H/M/L), <what was fixed>") is not a record.
-  const checklist =
-    !/<[^>\n]*>/.test(line?.[1] ?? '') &&
-    parts.length > 0 &&
-    !PLACEHOLDER_OPENER.test(parts[0]) &&
-    !parts.some((c) => PLACEHOLDER_CLAUSE.test(c));
+  const checklist = !/<[^>\n]*>/.test(line?.[1] ?? '') && isRecord(parts);
   const missing = [
     !declared && 'the `## Copilot off` heading',
     !review.recorded && 'a real `## Claude review` record',
