@@ -8,6 +8,7 @@ import {
   applyTheme,
   cellNote,
   checkLoaded,
+  waitForImages,
   checkTheme,
   redactConsole,
   runStep,
@@ -308,6 +309,91 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
   await assert.rejects(
     checkLoaded(page(['.skeleton']), ['[aria-busy="true"]', '.skeleton']),
     /still loading: \.skeleton is visible/,
+  );
+});
+
+test('waitForImages: waits for visible images, counts the ones that never load, and surfaces real errors', async () => {
+  const timeout = () =>
+    Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+  // Runs the real in-page function against a stand-in document.
+  const imgPage = ({ fail } = {}) => ({
+    async waitForFunction(fn, arg, opts) {
+      assert.equal(typeof opts.timeout, 'number');
+      if (fail) throw new Error(fail);
+      if (!fn(arg)) throw timeout();
+    },
+    async evaluate(fn, arg) {
+      return fn(arg);
+    },
+  });
+  const img = ({
+    top = 0,
+    w = 100,
+    complete = true,
+    nw = 100,
+    lazy = false,
+    hidden = false,
+  } = {}) => ({
+    complete,
+    naturalWidth: nw,
+    loading: lazy ? 'lazy' : 'auto',
+    hidden,
+    getBoundingClientRect: () => ({
+      top,
+      left: 0,
+      bottom: top + 50,
+      right: w,
+      width: w,
+      height: w ? 50 : 0,
+    }),
+  });
+  const withImgs = async (imgs, run) => {
+    const saved = ['document', 'getComputedStyle', 'window'].map((k) => [
+      k,
+      globalThis[k],
+    ]);
+    Object.assign(globalThis, {
+      document: { querySelectorAll: () => imgs },
+      getComputedStyle: (el) => ({
+        visibility: el.hidden ? 'hidden' : 'visible',
+      }),
+      window: { innerHeight: 800, innerWidth: 400 },
+    });
+    try {
+      return await run();
+    } finally {
+      for (const [k, v] of saved) globalThis[k] = v;
+    }
+  };
+  // All loaded, or the unloaded ones are off screen, zero-size or hidden: nothing pending.
+  await withImgs(
+    [
+      img(),
+      img({ top: 2000, complete: false, nw: 0 }),
+      img({ w: 0, complete: false }),
+      img({ hidden: true, nw: 0 }),
+    ],
+    async () => assert.equal(await waitForImages(imgPage()), 0),
+  );
+  // An on-screen image that never decodes (complete with no width is a broken one) is counted.
+  await withImgs(
+    [img(), img({ nw: 0 }), img({ complete: false, nw: 0 })],
+    async () => assert.equal(await waitForImages(imgPage(), { timeout: 1 }), 2),
+  );
+  // A full-page shot counts below-the-fold images too, and switches lazy ones to eager.
+  const below = img({ top: 2000, complete: false, nw: 0, lazy: true });
+  await withImgs([below], async () => {
+    assert.equal(
+      await waitForImages(imgPage(), { fullPage: true, timeout: 1 }),
+      1,
+    );
+    assert.equal(below.loading, 'eager');
+  });
+  await withImgs([], () =>
+    assert.rejects(
+      waitForImages(imgPage({ fail: 'Target closed' })),
+      /Target closed/,
+    ),
   );
 });
 
