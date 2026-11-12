@@ -4,12 +4,16 @@
 // and what it does and does not catch, is in secret-guard.mjs.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
-import { isSecretEnvFile, secretDecision } from './secret-guard.mjs';
+import {
+  isCredentialFile,
+  isSecretEnvFile,
+  secretDecision,
+} from './secret-guard.mjs';
 
-// Whether a folder a recursive search starts from holds a .env file within a few levels (a
-// monorepo keeps them in apps/<name>/). Bounded so a huge tree cannot stall the call; when the
+// Whether a folder a recursive search starts from holds a file `matches` accepts within a few levels
+// (a monorepo keeps .env files in apps/<name>/). Bounded so a huge tree cannot stall the call; when the
 // bound is hit, or the path cannot be resolved, it answers null and the guard's own rule decides.
 const SKIP = new Set([
   'node_modules',
@@ -19,7 +23,7 @@ const SKIP = new Set([
   'build',
   '.turbo',
 ]);
-function hasEnvFile(cwd) {
+function holdsFile(cwd, matches) {
   return (root) => {
     const home = homedir();
     let path = root
@@ -39,7 +43,7 @@ function hasEnvFile(cwd) {
       }
       for (const e of entries) {
         if (--budget < 0) throw new Error('budget');
-        if (e.isFile() && isSecretEnvFile(e.name)) return true;
+        if (e.isFile() && matches(join(dir, e.name))) return true;
       }
       if (depth === 0) return false;
       for (const e of entries)
@@ -69,10 +73,13 @@ try {
 if (input.tool_name !== undefined && input.tool_name !== 'Bash')
   process.exit(0);
 
+const cwd = String(input.cwd || process.cwd());
 let reason = null;
 try {
   reason = secretDecision(input.tool_input?.command, {
-    hasEnvFile: hasEnvFile(String(input.cwd || process.cwd())),
+    hasEnvFile: holdsFile(cwd, (p) => isSecretEnvFile(basename(p))),
+    hasCredentialFile: holdsFile(cwd, (p) => isCredentialFile(p, null)),
+    cwd,
   });
 } catch {
   // A parser failure must never block work; this guard catches accidents, it is not a sandbox.
