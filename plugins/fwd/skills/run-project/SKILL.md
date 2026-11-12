@@ -51,7 +51,8 @@ Every lane and subagent pays for the project's agent docs at start. Keep `AGENTS
 ## 2 · Starting a run
 
 1. Open one orchestrator session in the project's main checkout. It loads the `orchestrator` skill
-   and reads the priorities file, the ruling log and any open lanes' handoffs.
+   and reads the priorities file, the ruling log, the roadmap if the project has one
+   (`orchestrator` §4), and any open lanes' handoffs.
 2. Take the roster of open lanes from the lanes' handoffs and `ListAgents`, not from a
    measurement: `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"` lists recently
    active sessions (the orchestrator included, and none idle for over two hours), so use it only to
