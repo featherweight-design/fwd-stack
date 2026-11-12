@@ -80,7 +80,16 @@ that decides it:
   rows in the database), not only environment variables. Once, five shipped features were reported
   as off when an app-wide override had them on.
 - **Environment variables:** the hosting provider's API or console, not the lane's `.env`.
-- **A deploy:** the production health endpoint, not "CI is green".
+- **A deploy:** two facts, both read after the deploy. The production domain serves the new
+  deployment (the host's alias lookup returns the new deployment id), and a request that reads
+  the database succeeds. "CI is green", "the newest deployment is ready" and a health endpoint
+  that never touches the database prove none of it. Once, an API stayed pinned to an old
+  deployment after an automatic rollback switched off production auto-assign: three redeploys
+  went ready, none went live, and a database-free health check kept answering 200 through about
+  an hour of outage. When the alias points at an older deployment, promote the new one
+  explicitly, then check again.
+- **A merge:** the PR's state reads `MERGED`. With a merge queue, `gh pr merge` only adds the PR
+  to the queue, and the queue can still eject it on a failed check.
 - **An audit:** which checkout it read. Once, a fresh lane audited a checkout five days stale.
 - **A suggested follow-up:** one grep or one read. "Worth a one-line fix" is a claim, not a task.
 
@@ -157,7 +166,11 @@ nothing was watching.
 - **Lane messages are the primary wake.** The watchdog is the fallback: run
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/watchdog.mjs"` with the Bash tool's
   `run_in_background`. It polls GitHub at no model cost, and exits on a PR quiet for 30+ minutes,
-  on a truncated PR list, after five failed polls, or on the hourly heartbeat. On each wake: nudge
+  on a truncated PR list, after five failed polls, or on the hourly heartbeat. A PR held on
+  purpose (waiting on the user, a hold on merges) gets the `hold` label so the watchdog skips it;
+  remove the label when the hold lifts. Drafts are skipped already. Without the label, every
+  held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you hourly
+  for nothing. On each wake: nudge
   the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow
   external events, such as a platform patch.
 - **Never wait in the foreground, present or away.** A foreground wait holds the turn, and the

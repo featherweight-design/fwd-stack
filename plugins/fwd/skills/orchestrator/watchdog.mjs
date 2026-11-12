@@ -42,7 +42,7 @@ const openPrs = () => {
         '--state',
         'open',
         '--json',
-        'number,title,updatedAt,isDraft,headRefName',
+        'number,title,updatedAt,isDraft,headRefName,labels',
         '--limit',
         String(LIMIT),
         ...(repo ? ['--repo', repo] : []),

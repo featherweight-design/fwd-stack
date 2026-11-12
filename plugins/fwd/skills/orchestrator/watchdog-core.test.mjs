@@ -33,6 +33,24 @@ test('a draft is not a lane waiting on anything', () => {
   assert.deepEqual(stalledPrs([pr(4, '2026-10-27T10:00:00Z', true)], now), []);
 });
 
+test('a PR labelled hold is waiting on purpose, not stalled', () => {
+  const quiet = '2026-10-27T10:00:00Z';
+  assert.deepEqual(
+    stalledPrs(
+      [
+        { ...pr(6, quiet), labels: [{ name: 'hold' }] },
+        { ...pr(7, quiet), labels: [{ name: 'Hold' }] },
+      ],
+      now,
+    ),
+    [],
+  );
+  assert.equal(
+    stalledPrs([{ ...pr(8, quiet), labels: [{ name: 'bug' }] }], now).length,
+    1,
+  );
+});
+
 test('a stalled PR is reported once until something touches it again', () => {
   const stalled = stalledPrs([pr(5, '2026-10-27T19:00:00Z')], now);
   assert.equal(unreported(stalled).length, 1);
