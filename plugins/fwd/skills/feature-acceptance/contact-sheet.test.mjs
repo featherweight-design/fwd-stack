@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   applyTheme,
   cellNote,
+  checkLoaded,
   checkTheme,
   redactConsole,
   runStep,
@@ -287,4 +288,25 @@ test('route: ${VAR} in the glob comes from the environment', async () => {
     { CREW: 'c1' },
   );
   assert.equal(page.routes[0].pattern, '**/api/crews/c1');
+});
+
+test('checkLoaded: a visible loading marker fails the cell; a hidden or absent one does not', async () => {
+  const page = (visible) => ({
+    locator: (sel) => ({
+      first: () => ({
+        isVisible: async () => {
+          if (sel === '.broken') throw new Error('bad selector');
+          return visible.includes(sel);
+        },
+      }),
+    }),
+  });
+  await checkLoaded(page([]), ['[aria-busy="true"]', '.skeleton']);
+  await checkLoaded(page(['.other']), ['[aria-busy="true"]']);
+  await checkLoaded(page([]), []);
+  await checkLoaded(page([]), ['.broken']);
+  await assert.rejects(
+    checkLoaded(page(['.skeleton']), ['[aria-busy="true"]', '.skeleton']),
+    /still loading: \.skeleton is visible/,
+  );
 });

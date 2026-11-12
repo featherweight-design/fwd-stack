@@ -13,6 +13,8 @@
 //                  "colorScheme": "dark", "dataTheme": "dark" }],
 //                                                     // optional: the sheet once per theme
 //     "pageScope": "main",                            // selector page content lives in ("" = none)
+//     "loading": ["[aria-busy=\"true\"]", ".skeleton"], // a cell fails while one shows (default:
+//                                                     //   aria-busy; [] for none)
 //     "signIn": "scripts/contact-sheet-sign-in.mjs",  // module exporting signIn(page, { baseUrl })
 //     "inventories": "docs/superpowers/inventories",  // where a feature's inventory JSON lives
 //     "out": "contact-sheets",                        // gitignored; one folder per inventory

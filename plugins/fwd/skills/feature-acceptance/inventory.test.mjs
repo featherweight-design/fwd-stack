@@ -22,7 +22,7 @@ const LABELS = ['phone', 'desktop'];
 const row = (over = {}) => ({
   id: 'home',
   label: '/ home',
-  steps: [{ goto: '/', wait: 'h1' }],
+  steps: [{ goto: '/', wait: '[data-testid="home"]' }],
   ...over,
 });
 const inv = (over = {}) => ({ feature: 'Home', rows: [row()], ...over });
@@ -416,7 +416,10 @@ test('themes: label, a way to select the theme, and known keys only', () => {
 
 test('goto: expectStatus is an HTTP status, expectRedirect a path; neither without goto', () => {
   const step = (s) => errs(inv({ rows: [row({ steps: [s] })] })).join();
-  assert.equal(step({ goto: '/nope', expectStatus: 404, wait: 'h1' }), '');
+  assert.equal(
+    step({ goto: '/nope', expectStatus: 404, wait: '[data-testid="home"]' }),
+    '',
+  );
   assert.equal(step({ goto: '/app', expectRedirect: '/sign-in' }), '');
   assert.match(step({ goto: '/nope', expectStatus: '404' }), /expectStatus/);
   assert.match(step({ goto: '/nope', expectStatus: 302 }), /expectStatus/);
@@ -428,7 +431,12 @@ test('goto: expectStatus is an HTTP status, expectRedirect a path; neither witho
     errs(
       inv({
         rows: [
-          row({ steps: [{ goto: '/' }, { wait: 'h1', expectStatus: 404 }] }),
+          row({
+            steps: [
+              { goto: '/' },
+              { wait: '[data-testid="home"]', expectStatus: 404 },
+            ],
+          }),
         ],
       }),
     ).join(),
@@ -441,7 +449,7 @@ test('route: a glob with a status, a body or both; it may come before the goto',
   assert.equal(
     steps([
       { route: '**/api/feed', status: 500 },
-      { goto: '/', wait: 'h1' },
+      { goto: '/', wait: '[data-testid="home"]' },
     ]),
     '',
   );
@@ -464,7 +472,7 @@ test('route: a glob with a status, a body or both; it may come before the goto',
   );
   // A route first does not excuse the row from loading its own route.
   assert.match(
-    steps([{ route: '**/x', status: 204 }, { wait: 'h1' }]),
+    steps([{ route: '**/x', status: 204 }, { wait: '[data-testid="home"]' }]),
     /first step loads/,
   );
 });
@@ -544,4 +552,23 @@ test('registerSecretEnv: a credential-named variable is scrubbed though no inven
   );
   // Not a credential by name, or too short to scrub from every line.
   assert.equal(redact('development 1 of 3'), 'development 1 of 3');
+});
+
+test('a wait on a bare element is refused: the loading skeleton draws it too', () => {
+  for (const wait of ['h1', 'main', ' table ', 'header'])
+    assert.match(
+      errs(inv({ rows: [row({ steps: [{ goto: '/', wait }] })] })).join(),
+      /passes on a loading skeleton/,
+    );
+  for (const wait of [
+    '[data-testid="show-list"]',
+    'main h2',
+    'h1:has-text("Shows")',
+    'role=heading[name="Shows"]',
+    'text=No results',
+  ])
+    assert.deepEqual(
+      errs(inv({ rows: [row({ steps: [{ goto: '/', wait }] })] })),
+      [],
+    );
 });
