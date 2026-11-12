@@ -168,7 +168,9 @@ nothing was watching.
   `run_in_background`. It polls GitHub at no model cost, and exits on a PR quiet for 30+ minutes,
   on a truncated PR list, after five failed polls, or on the hourly heartbeat. A PR held on
   purpose (waiting on the user, a hold on merges) gets the `hold` label so the watchdog skips it;
-  remove the label when the hold lifts. Drafts are skipped already. Without the label, every
+  remove the label when the hold lifts. Create the label once per repository
+  (`gh label create hold`). Every watchdog report lists the held PRs and how long each has been
+  quiet, so a leftover hold is seen at the next wake. Drafts are skipped already. Without the label, every
   held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you hourly
   for nothing. On each wake: nudge
   the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow

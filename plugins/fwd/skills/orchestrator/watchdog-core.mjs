@@ -13,7 +13,7 @@ export function unreported(stalled, seen = {}) {
 
 // A PR held on purpose carries this label: it is not a lane that stopped.
 export const HOLD_LABEL = 'hold';
-const held = (p) =>
+export const held = (p) =>
   (p.labels ?? []).some((l) => (l?.name ?? l).toLowerCase() === HOLD_LABEL);
 
 export function stalledPrs(prs, now, stallMinutes = 30) {
@@ -24,5 +24,16 @@ export function stalledPrs(prs, now, stallMinutes = 30) {
       quietMinutes: Math.floor((now - Date.parse(p.updatedAt)) / 60_000),
     }))
     .filter((p) => p.quietMinutes >= stallMinutes)
+    .sort((a, b) => b.quietMinutes - a.quietMinutes);
+}
+
+/** The open PRs held on purpose, the quietest first, so every report shows a hold left behind. */
+export function heldPrs(prs, now) {
+  return prs
+    .filter((p) => !p.isDraft && held(p))
+    .map((p) => ({
+      ...p,
+      quietMinutes: Math.floor((now - Date.parse(p.updatedAt)) / 60_000),
+    }))
     .sort((a, b) => b.quietMinutes - a.quietMinutes);
 }

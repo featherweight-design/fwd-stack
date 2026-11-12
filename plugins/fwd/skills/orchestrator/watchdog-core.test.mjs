@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { stalledPrs, unreported } from './watchdog-core.mjs';
+import { heldPrs, stalledPrs, unreported } from './watchdog-core.mjs';
 
 const now = Date.parse('2026-10-27T21:00:00Z');
 const pr = (number, updatedAt, isDraft = false) => ({
@@ -48,6 +48,16 @@ test('a PR labelled hold is waiting on purpose, not stalled', () => {
   assert.equal(
     stalledPrs([{ ...pr(8, quiet), labels: [{ name: 'bug' }] }], now).length,
     1,
+  );
+  assert.deepEqual(
+    heldPrs(
+      [
+        { ...pr(6, quiet), labels: [{ name: 'hold' }] },
+        { ...pr(8, quiet), labels: [] },
+      ],
+      now,
+    ).map((p) => p.number),
+    [6],
   );
 });
 
