@@ -211,6 +211,7 @@ marketplace first:
 | `design-status`      | A fixed-shape readout of the design pipeline's state                                                           |
 | `readiness-review`   | Audits a design handoff on seven dimensions and writes its READINESS verdict before any UI work                |
 | `css-layout-triage`  | Measurement-first triage for layout bugs that resist fixing                                                    |
+| `caching`            | The standard caching approach: public or personal, versioned keys, invalidation, headers, measuring            |
 | `complete-and-ship`  | Finishes a plan's remaining tasks unattended, then opens and reviews the PR                                    |
 | `epic-run`           | Runs a multi-PR feature epic end to end with per-PR and whole-vertical gates                                   |
 | `feature-run-report` | Emails the run report (progress, ready to test, waiting on you) at the end of a run, or when it blocks         |
