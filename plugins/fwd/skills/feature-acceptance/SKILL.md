@@ -93,6 +93,11 @@ by the same agent that wrote the code, so it asserts what that agent believed โ€
 on the motivating feature, one PR's probe absorbed several rounds of review
 findings and still measured the wrong route. A contact sheet has no beliefs; it just shows the page.
 
+**And a sheet is not evidence of behaviour.** It is every screen at rest. What a screen does when
+pressed (focus, a tap that moves its target, a pinned header after a scroll, a sheet under the
+fold) is the `ui-probe` skill's job: a probe per behavioural claim, shown to fail with the fix
+reverted. The sheet proves presence on every route; the probes prove the surface works.
+
 **The kit's contact sheet** walks one inventory (ยง The inventory) at every width the project
 names and writes `sheet.png` plus one PNG per cell:
 
@@ -348,9 +353,10 @@ to maintain.
 
 - **Before implementation:** the inventory goes in the plan.
 - **Per PR:** the contact sheet for the routes that PR touches, in the PR body.
-  Marker presence, import equality and the token guard pass. The `design-review`
+  Every behavioural claim has a `ui-probe` probe that fails with the fix reverted, recorded
+  under `## Probes`. Marker presence, import equality and the token guard pass. The `design-review`
   verify table is in the PR body under `## Design review`.
-- **At feature close:** full inventory walked, full contact sheet, `design-review`
+- **At feature close:** full inventory walked, full contact sheet, every probe for the feature rerun, `design-review`
   against the brief, and every row ticked.
 - **Not done** until the last of those is true, whatever the PRs' review state.
 
@@ -364,14 +370,15 @@ have caught all three gaps before the user did.
 
 ## Red flags
 
-| Thought                                 | Reality                                                       |
-| --------------------------------------- | ------------------------------------------------------------- |
-| "The PR says all three routes mount it" | A description is not a route. Load them.                      |
-| "The probe passes"                      | The probe asserts what its author believed. Look at the page. |
-| "Each PR passed review"                 | Every gap in the motivating case was at a seam between PRs.   |
-| "It uses the shared component"          | Wrapped or reimplemented? Check the import.                   |
-| "Desktop looks right"                   | Both viewports, every route, or the row isn't ticked.         |
-| "I'll walk it after the last PR merges" | That walk is part of the feature. Unwalked is unfinished.     |
-| "We should add screenshot baselines"    | They fire on change, not absence. See above.                  |
-| "This project has no acceptance file"   | Stop and report it. Missing setup is not a pass.              |
-| "I'll take the sheet after it merges"   | Sheet the local dev server before the PR opens.               |
+| Thought                                 | Reality                                                         |
+| --------------------------------------- | --------------------------------------------------------------- |
+| "The PR says all three routes mount it" | A description is not a route. Load them.                        |
+| "The probe passes"                      | Did it fail with the fix reverted? And look at the page.        |
+| "The sheet looks right"                 | A sheet is the screen at rest. Probe what it does when pressed. |
+| "Each PR passed review"                 | Every gap in the motivating case was at a seam between PRs.     |
+| "It uses the shared component"          | Wrapped or reimplemented? Check the import.                     |
+| "Desktop looks right"                   | Both viewports, every route, or the row isn't ticked.           |
+| "I'll walk it after the last PR merges" | That walk is part of the feature. Unwalked is unfinished.       |
+| "We should add screenshot baselines"    | They fire on change, not absence. See above.                    |
+| "This project has no acceptance file"   | Stop and report it. Missing setup is not a pass.                |
+| "I'll take the sheet after it merges"   | Sheet the local dev server before the PR opens.                 |

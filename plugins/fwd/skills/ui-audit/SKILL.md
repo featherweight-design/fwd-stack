@@ -20,6 +20,12 @@ On-demand UI sweep of the project's staging environment: run the project's Playw
 
 **If `uiSweep` is missing, stop.** Report that the project has no sweep command configured and that the audit cannot run. Never guess a command, and never improvise a sweep by hand.
 
+**A screenshot finds; a probe proves.** The sweep's captures are screens at rest, so they catch
+layout breakage but never behaviour. Every approved finding's issue names the probe its fix must
+ship with (`ui-probe` skill): the claim, the widths, and what to measure. The fix is done when that
+probe fails on the old code and passes on the new. Behaviour the captures cannot show (focus, a
+tap, a scroll, a sheet) is probed directly, never inferred from a picture.
+
 **Announce at start:** "I'm using the ui-audit skill to sweep staging."
 
 ---
@@ -259,6 +265,9 @@ gh api -X POST "/repos/$REPO/issues" \
 1. Set viewport to <viewport>
 2. Navigate to the route
 3. If interaction state != default, perform: <interaction description from the sweep's route definition>
+
+## Probe the fix ships with
+<the claim as the user would see it>, at <widths>: measure <what: a box, focus, scrollWidth against clientWidth, a computed style>. It must fail on today's code (`ui-probe` skill).
 
 ## Evidence
 ![screenshot](<the screenshot URL from Step 1>)
