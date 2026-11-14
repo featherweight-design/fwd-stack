@@ -315,7 +315,8 @@ both validate it, and refuse it rather than run part of it.
   verb that may come before the row's `goto`, and every route is cleared when the row ends.
   A request that carries an `Origin` (a web app calling its API on another port or host) is
   answered with CORS headers allowing that origin, credentials included, and its `OPTIONS`
-  preflight gets a 204, so a cross-origin API can be mocked like a same-origin one.
+  preflight gets a 204 with no body, whatever `status` says, so a cross-origin API can be mocked
+  like a same-origin one. It allows any asking origin, which is right for a mock and only for one.
 - **`expectStatus`** (an HTTP status, e.g. `404`) makes the `goto` pass only on that status;
   **`expectRedirect`** (a path, e.g. `"/sign-in"`) only when it lands there, on the same origin.
   Without them any status of 400 or above, and any redirect, fails the cell.
