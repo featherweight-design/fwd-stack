@@ -146,7 +146,16 @@ test('riskyPathsOf keeps a rename out of a risky path, and drops nonRuntime path
   );
 });
 
-test('overlapIgnored drops docs, tests, generated, handoff and tooling config', () => {
+test('riskOf reads REST file objects: a rename out of a risky path is risky', () => {
+  const renamed = {
+    filename: 'src/lib/users.ts',
+    previous_filename: 'src/db/users.ts',
+    status: 'renamed',
+  };
+  assert.equal(riskOf(pr(6, '', 'refactor: move', [renamed])).risky, true);
+});
+
+test('overlapIgnored drops docs, tests, generated and handoff, and keeps config', () => {
   for (const p of [
     'README.md',
     'src/db/x.test.ts',
@@ -154,11 +163,14 @@ test('overlapIgnored drops docs, tests, generated, handoff and tooling config', 
     'pnpm-lock.yaml',
     'drizzle/meta/_journal.json',
     'design/handoff/x.dc.html',
-    'package.json',
-    'plugins/fwd/.claude-plugin/plugin.json',
   ])
     assert.equal(overlapIgnored(p), true, p);
-  assert.equal(overlapIgnored('src/db/users.ts'), false);
+  for (const p of [
+    'src/db/users.ts',
+    'package.json',
+    '.github/workflows/ci.yml',
+  ])
+    assert.equal(overlapIgnored(p), false, p);
 });
 
 test('missingSources names sources outside the list, once', () => {
@@ -300,4 +312,36 @@ test('formatReport prints a table per repo and the totals', () => {
     text,
     /Totals: 3 risky PR\(s\) landed, 1 named escape\(s\), 1 candidate\(s\)$/,
   );
+});
+
+test('sweepRepo ignores a candidate whose only overlap is a version-only manifest bump', () => {
+  const manifest = 'plugins/x/.claude-plugin/plugin.json';
+  const bump = {
+    filename: manifest,
+    status: 'modified',
+    patch:
+      '@@ -2,3 +2,3 @@\n   "name": "x",\n-  "version": "1.0.0",\n+  "version": "1.0.1",\n   "author": "a"',
+  };
+  const risky = pr(40, '2026-11-01T10:00:00Z', 'feat(auth): x', [
+    'src/auth/login.ts',
+    manifest,
+  ]);
+  const fix = pr(41, '2026-11-08T10:00:00Z', 'fix: hook', [
+    'src/hook.mjs',
+    bump,
+  ]);
+  assert.deepEqual(sweepRepo({ prs: [risky, fix], since }).candidates, []);
+  // The same manifest, changed beyond its version, does overlap.
+  const real = {
+    ...bump,
+    patch: '@@ -1 +1 @@\n-  "hooks": "a",\n+  "hooks": "b",',
+  };
+  const fix2 = pr(42, '2026-11-08T10:00:00Z', 'fix: hook', [real]);
+  assert.deepEqual(sweepRepo({ prs: [risky, fix2], since }).candidates, [
+    {
+      number: 42,
+      title: 'fix: hook',
+      sources: [{ number: 40, files: [manifest] }],
+    },
+  ]);
 });

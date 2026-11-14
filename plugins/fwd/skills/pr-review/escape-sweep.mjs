@@ -10,16 +10,26 @@
 //     days before the candidate merged, and that no `Escaped from` line already names.
 //
 // Risk is read the way the gate reads it (riskyPathsOf and riskOverride, risk-override.mjs), from
-// paths, never from body text: an earlier ad-hoc sweep that judged risk by the words in a PR body
-// flagged about 60 design-polish PRs. The sweep cannot see patches, so the gate's destructive-diff
-// signal is not read; a migration path is risky by path anyway.
+// the PR's files, never from body text: an earlier ad-hoc sweep that judged risk by the words in a
+// PR body flagged about 60 design-polish PRs. The files come from the same REST endpoint the gate
+// reads, so a rename out of a risky path counts and a version-only manifest bump does not. Two gate
+// signals are not read, because each needs more than the file list: a destructive diff (the gate's
+// DESTRUCTIVE regex over added lines; a migration path is risky by path anyway) and a comment-only
+// edit to a risky file (which needs the head file's text). So a PR risky only by a destructive call
+// in an ordinary file is missed, and a comment-only edit to a risky file is counted.
 //
 // Read-only. The pure logic below takes plain data and is tested in escape-sweep.test.mjs; the gh
 // calls sit in the thin layer at the bottom, which runs only when this file is executed.
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-import { isDoc, isGenerated, isHandoff, isToolingConfig } from './classify.mjs';
+import {
+  isDoc,
+  isGenerated,
+  isHandoff,
+  isVersionOnlyChange,
+} from './classify.mjs';
 import { riskOverride, riskyPathsOf } from './risk-override.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -75,9 +85,18 @@ export const isFixTitle = (title) =>
   /^(fix|revert|hotfix)(\([^)]*\))?!?:/i.test(String(title ?? '').trim()) ||
   /^Revert "/.test(String(title ?? '').trim());
 
+// A file as the REST files endpoint returns it (`{ filename, previous_filename?, status?, patch? }`),
+// or a bare path.
+const fileOf = (f) => (typeof f === 'string' ? { filename: f } : f);
+
+// The files the gate proves non-runtime without the head file's text: a top-level version bump.
+const nonRuntimeOf = (files) =>
+  new Set(files.filter((f) => isVersionOnlyChange(f)).map((f) => f.filename));
+
 /** Whether the gate would call this PR risky, from its paths and its `## Risk: not risky` section. */
 export function riskOf(pr) {
-  const riskyPaths = riskyPathsOf(pr.files.map((filename) => ({ filename })));
+  const files = pr.files.map(fileOf);
+  const riskyPaths = riskyPathsOf(files, nonRuntimeOf(files));
   const override = riskOverride(pr.body ?? '', {
     riskyPaths,
     destructive: false,
@@ -88,14 +107,12 @@ export function riskOf(pr) {
   };
 }
 
-// Files whose overlap says nothing about an escape: prose, tests, generated, handoff, tooling
-// config, and a plugin manifest, whose version every plugin PR bumps.
+// Paths whose overlap says nothing about an escape: prose, tests, generated files and lockfiles,
+// and design handoff. A candidate's version-only manifest bump is dropped separately (sweepRepo).
 export const overlapIgnored = (p) =>
   isDoc(p) ||
-  /(^|\/)\.claude-plugin\/(plugin|marketplace)\.json$/.test(p) ||
   isGenerated(p) ||
   isHandoff(p) ||
-  isToolingConfig(p) ||
   /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) ||
   /(^|\/)(__tests__|tests?|e2e|fixtures?)\//.test(p);
 
@@ -148,13 +165,21 @@ export function sweepRepo({ prs, since, extra = [] }) {
   for (const p of landed) {
     if (namedSet.has(p.number) || !isFixTitle(p.title)) continue;
     const at = Date.parse(p.mergedAt);
-    const mine = new Set(p.files.filter((f) => !overlapIgnored(f)));
+    const own = p.files.map(fileOf);
+    const bumps = nonRuntimeOf(own);
+    const mine = new Set(
+      own
+        .map((f) => f.filename)
+        .filter((f) => !overlapIgnored(f) && !bumps.has(f)),
+    );
     const sources = [];
     for (const r of riskyPrs) {
       const rAt = Date.parse(r.mergedAt);
       if (r.number === p.number || rAt >= at || rAt < at - WINDOW_DAYS * DAY)
         continue;
-      const files = r.files.filter((f) => mine.has(f));
+      const files = r.files
+        .map((f) => fileOf(f).filename)
+        .filter((f) => mine.has(f));
       if (files.length > 0) sources.push({ number: r.number, files });
     }
     if (sources.length > 0)
@@ -241,11 +266,32 @@ const gh = (args) =>
     }),
   );
 
-const toPr = (p) => ({
+// Every file of one PR from the REST endpoint the gate reads: it carries `previous_filename` for a
+// rename and the patch, and has no per-PR cap below GitHub's own 3000 files.
+const filesOf = (repo, n) =>
+  execFileSync(
+    'gh',
+    [
+      'api',
+      '--paginate',
+      `repos/${repo}/pulls/${n}/files`,
+      '--jq',
+      '.[] | {filename, previous_filename, status, patch}',
+    ],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+  )
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+
+const LIST_LIMIT = 1000;
+const FIELDS = 'number,title,body,mergedAt';
+
+const toPr = (repo, p) => ({
   number: p.number,
   title: p.title,
   body: p.body ?? '',
-  files: (p.files ?? []).map((f) => f.path),
+  files: filesOf(repo, p.number),
   mergedAt: p.mergedAt,
 });
 
@@ -253,7 +299,7 @@ function fetchRepo(repo, since) {
   const from = new Date(Date.parse(since) - WINDOW_DAYS * DAY)
     .toISOString()
     .slice(0, 10);
-  const prs = gh([
+  const listed = gh([
     'pr',
     'list',
     '--repo',
@@ -265,24 +311,22 @@ function fetchRepo(repo, since) {
     '--search',
     `merged:>=${from}`,
     '--limit',
-    '1000',
+    String(LIST_LIMIT),
     '--json',
-    'number,title,body,files,mergedAt',
-  ]).map(toPr);
+    FIELDS,
+  ]);
+  if (listed.length >= LIST_LIMIT)
+    console.error(
+      `warning: ${repo} returned ${LIST_LIMIT} PRs, the list cap; the oldest are missing. Use a later --since.`,
+    );
+  const prs = listed.map((p) => toPr(repo, p));
   const extra = [];
   for (const n of missingSources(prs)) {
     try {
       extra.push(
         toPr(
-          gh([
-            'pr',
-            'view',
-            String(n),
-            '--repo',
-            repo,
-            '--json',
-            'number,title,body,files,mergedAt',
-          ]),
+          repo,
+          gh(['pr', 'view', String(n), '--repo', repo, '--json', FIELDS]),
         ),
       );
     } catch {
@@ -292,10 +336,21 @@ function fetchRepo(repo, since) {
   return { repo, ...sweepRepo({ prs, since, extra }) };
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+// Run only when executed, not when the test imports it. Both sides are real paths, so a symlinked
+// invocation still runs.
+const executed = (() => {
+  try {
+    return (
+      Boolean(process.argv[1]) &&
+      realpathSync(process.argv[1]) ===
+        realpathSync(fileURLToPath(import.meta.url))
+    );
+  } catch {
+    return false;
+  }
+})();
+
+if (executed) {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
