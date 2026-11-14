@@ -2,6 +2,10 @@
 // guards (Concert Crawl's copy lint, The 99's hover-state rule) stay in that project's config,
 // layered after these.
 export const sharedTypeScriptRules = {
+  // typescript-eslint's recommended preset turns this off for TS files and defers to ts(7027), but
+  // tsc reports 7027 as an error only under `allowUnreachableCode: false`, which no fwd-stack
+  // tsconfig sets. Without this, code after a `return` or `throw` passes both lint and typecheck.
+  'no-unreachable': 'error',
   'no-unused-vars': 'off',
   // An underscore marks a name as deliberately unused: an argument, a caught error, a
   // destructured value dropped on purpose (`const { id: _drop, ...rest } = row`).
