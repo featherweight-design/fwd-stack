@@ -221,6 +221,7 @@ marketplace first:
 | `infra-setup`        | Hosting, database and monitoring defaults, staging footprint and a names-only secrets inventory                |
 | `backlog-audit`      | Audits, triages and prioritises the GitHub Issues backlog, and governs intake                                  |
 | `ui-audit`           | Runs the project's UI sweep, triages captures for layout breakage, files on approval                           |
+| `ui-probe`           | Probes: press the real screen at both widths, measure it, and prove the check fails with the fix reverted      |
 | `prose-pass`         | Rewrites long-form in-app prose in the project's voice, with a fact check (own apps only)                      |
 | `run-project`        | The standard operating model: one orchestrator, a capped set of lanes for PR work, subagents for bounded reads |
 | `orchestrator`       | Coordinates lane sessions: assigns work, watches stalls and context, rotates lanes, reports status             |
