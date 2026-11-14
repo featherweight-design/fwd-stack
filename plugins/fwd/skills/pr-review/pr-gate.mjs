@@ -35,7 +35,11 @@ import {
   COPILOT_OFF_HINT,
   RECORD_HINT,
 } from './claude-review.mjs';
-import { NOT_RISKY_TITLE, RISKY_PATH, riskOverride } from './risk-override.mjs';
+import {
+  NOT_RISKY_TITLE,
+  riskOverride,
+  riskyPathsOf,
+} from './risk-override.mjs';
 import {
   commentOnlyHunks,
   isCommentOnlyChange,
@@ -468,16 +472,7 @@ const destructive = destructivePaths.length > 0;
 // A path is not the rule: a display-only change to a credits file is not payments code. The PR body's
 // `## Risk: not risky` section, with a real reason, clears a path-risky PR, unless the diff carries a
 // hard-risky signal (risk-override.mjs, HARD_RISKY). Every declaration is printed, applied or not.
-const riskyPaths = files
-  // A rename OUT of a risky path still touches it.
-  .flatMap((f) => [f.filename, f.previous_filename].filter(Boolean))
-  .filter(
-    (p) =>
-      !isDoc(p) &&
-      !nonRuntime.has(p) &&
-      !/\.(test|spec)\.[cm]?[jt]sx?$/.test(p) &&
-      RISKY_PATH.test(p),
-  );
+const riskyPaths = riskyPathsOf(files, nonRuntime);
 const pathRisky = destructive || riskyPaths.length > 0;
 const override = riskOverride(prData.body, { riskyPaths, destructive });
 const risky = pathRisky && !override.applied;

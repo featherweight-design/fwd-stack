@@ -89,6 +89,9 @@ Copilot caught and Claude's review missed (the evidence is under the change free
   2. **A weekly sweep.** Each Friday, list the PRs merged that week with `fix`, `revert` or
      `hotfix` in the title that touch a file a risky PR changed in the 14 days before, and label
      each one an escape or not. This catches the escapes nobody labelled.
+     Run `node escape-sweep.mjs --repo owner/name [--repo ...] --since YYYY-MM-DD [--json]` from
+     this skill's folder: it lists items 1 and 2 per repo, judging risk by the gate's own path
+     rule, and ignores overlap on docs, tests, generated, handoff and tooling files.
   3. **An audit sample.** Every 5th merged risky PR gets a fresh-session `/code-review high` on its
      merged diff the next day. A real finding counts as a latent escape. Kept through December,
      then dropped if it has found nothing real.

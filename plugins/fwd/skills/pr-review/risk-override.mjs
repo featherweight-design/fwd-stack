@@ -15,6 +15,7 @@
 // diff carries a hard-risky signal (HARD_RISKY below, or a destructive diff): there a wrong
 // declaration costs data, money or access, so a lane's word is not enough.
 
+import { isDoc } from './classify.mjs';
 import { sectionState } from './claude-review.mjs';
 
 // ---- risky paths -------------------------------------------------------------
@@ -46,6 +47,23 @@ export const RISKY_PATH = new RegExp(
     .join('|'),
   'i',
 );
+
+/**
+ * The risky runtime paths among a PR's files: each `{ filename, previous_filename? }` (a rename OUT
+ * of a risky path still touches it), less documentation, tests and the `nonRuntime` paths the gate
+ * proved do not change what runs. The gate (pr-gate.mjs) and the escape sweep (escape-sweep.mjs)
+ * both read risk through this one function.
+ */
+export const riskyPathsOf = (files, nonRuntime = new Set()) =>
+  files
+    .flatMap((f) => [f.filename, f.previous_filename].filter(Boolean))
+    .filter(
+      (p) =>
+        !isDoc(p) &&
+        !nonRuntime.has(p) &&
+        !/\.(test|spec)\.[cm]?[jt]sx?$/.test(p) &&
+        RISKY_PATH.test(p),
+    );
 
 // The signals a `## Risk: not risky` declaration cannot override. A destructive diff is the fifth,
 // read by the gate (pr-gate.mjs, DESTRUCTIVE) and passed in.
