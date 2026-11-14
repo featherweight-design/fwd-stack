@@ -195,6 +195,50 @@ test('route: fulfils matching requests with the status and body, JSON for a non-
   );
 });
 
+test('route: a cross-origin call gets CORS headers, and its preflight answers 204', async () => {
+  const page = fakePage();
+  await run(page, { route: '**/api/feed', body: { ok: true } });
+  const { handler } = page.routes[0];
+  const request = (method, headers) => ({
+    method: () => method,
+    headers: () => headers,
+  });
+  const answered = [];
+  const call = (req) =>
+    handler({ request: () => req, fulfill: async (o) => answered.push(o) });
+  await call(request('GET', { origin: 'http://localhost:3080' }));
+  await call(
+    request('OPTIONS', {
+      origin: 'http://localhost:3080',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'content-type,authorization',
+    }),
+  );
+  await call(request('GET', {}));
+  const cors = {
+    'access-control-allow-origin': 'http://localhost:3080',
+    'access-control-allow-credentials': 'true',
+    vary: 'Origin',
+  };
+  assert.deepEqual(answered[0], {
+    status: 200,
+    body: '{"ok":true}',
+    contentType: 'application/json',
+    headers: cors,
+  });
+  assert.deepEqual(answered[1], {
+    status: 204,
+    headers: {
+      ...cors,
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'content-type,authorization',
+      'access-control-max-age': '600',
+    },
+  });
+  // A same-origin call carries no Origin header and gets no CORS headers.
+  assert.equal(answered[2].headers, undefined);
+});
+
 test('a failed cell never prints an expanded value: redacted before the note is cut', async () => {
   const token = 'fake-cc-invite-7Hq2xL9pV4';
   const env = { CC_CREW_INVITE_TOKEN: token };

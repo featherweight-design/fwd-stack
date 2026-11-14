@@ -59,13 +59,37 @@ export async function runStep(page, step, { base, scope, env = process.env }) {
   if (step.route !== undefined) {
     // Answers this row's matching requests; the run clears every route when the row ends.
     const json = step.body !== undefined && typeof step.body !== 'string';
-    await page.route(expand(step.route, 'route', env), (route) =>
-      route.fulfill({
+    await page.route(expand(step.route, 'route', env), (route) => {
+      // A cross-origin call (a web app on one port, its API on another) is refused by the browser
+      // unless the answer allows the page's origin, credentials included, and a preflight answers.
+      const request = route.request?.();
+      const origin = request?.headers()['origin'];
+      const cors = origin
+        ? {
+            'access-control-allow-origin': origin,
+            'access-control-allow-credentials': 'true',
+            vary: 'Origin',
+          }
+        : null;
+      if (cors && request.method() === 'OPTIONS')
+        return route.fulfill({
+          status: 204,
+          headers: {
+            ...cors,
+            'access-control-allow-methods':
+              request.headers()['access-control-request-method'] ?? 'GET',
+            'access-control-allow-headers':
+              request.headers()['access-control-request-headers'] ?? '',
+            'access-control-max-age': '600',
+          },
+        });
+      return route.fulfill({
         status: step.status ?? 200,
         body: json ? JSON.stringify(step.body) : (step.body ?? ''),
         ...(json ? { contentType: 'application/json' } : {}),
-      }),
-    );
+        ...(cors ? { headers: cors } : {}),
+      });
+    });
   }
   if (step.goto !== undefined) {
     const asked = new URL(
