@@ -184,7 +184,10 @@ test('route: fulfils matching requests with the status and body, JSON for a non-
   await run(page, { route: '**/api/ping', body: 'pong' });
   const answered = [];
   for (const r of page.routes)
-    await r.handler({ fulfill: async (o) => answered.push(o) });
+    await r.handler({
+      request: () => ({ method: () => 'GET', headers: () => ({}) }),
+      fulfill: async (o) => answered.push(o),
+    });
   assert.deepEqual(answered, [
     { status: 503, body: '{"error":"down"}', contentType: 'application/json' },
     { status: 200, body: 'pong' },
@@ -193,6 +196,62 @@ test('route: fulfils matching requests with the status and body, JSON for a non-
     page.routes.map((r) => r.pattern),
     ['**/api/feed', '**/api/ping'],
   );
+});
+
+test('route: a cross-origin call gets CORS headers, and its preflight answers 204', async () => {
+  const page = fakePage();
+  await run(page, { route: '**/api/feed', body: { ok: true } });
+  await run(page, { route: '**/api/down', status: 503, body: 'down' });
+  const { handler } = page.routes[0];
+  const request = (method, headers) => ({
+    method: () => method,
+    headers: () => headers,
+  });
+  const answered = [];
+  const call = (req) =>
+    handler({ request: () => req, fulfill: async (o) => answered.push(o) });
+  await call(request('GET', { origin: 'http://localhost:3080' }));
+  await call(
+    request('OPTIONS', {
+      origin: 'http://localhost:3080',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'content-type,authorization',
+    }),
+  );
+  await call(request('GET', {}));
+  const cors = {
+    'access-control-allow-origin': 'http://localhost:3080',
+    'access-control-allow-credentials': 'true',
+    vary: 'Origin',
+  };
+  assert.deepEqual(answered[0], {
+    status: 200,
+    body: '{"ok":true}',
+    contentType: 'application/json',
+    headers: cors,
+  });
+  assert.deepEqual(answered[1], {
+    status: 204,
+    headers: {
+      ...cors,
+      vary: 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers',
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'content-type,authorization',
+      'access-control-max-age': '600',
+    },
+  });
+  // A same-origin call carries no Origin header and gets no CORS headers.
+  assert.equal(answered[2].headers, undefined);
+  // A preflight that asks for no headers is not told an empty list.
+  await call(request('OPTIONS', { origin: 'http://localhost:3080' }));
+  assert.equal(answered[3].headers['access-control-allow-headers'], undefined);
+  // An error answer keeps its CORS headers, or the browser hides its body from the page.
+  await page.routes[1].handler({
+    request: () => request('GET', { origin: 'http://localhost:3080' }),
+    fulfill: async (o) => answered.push(o),
+  });
+  assert.equal(answered[4].status, 503);
+  assert.deepEqual(answered[4].headers, cors);
 });
 
 test('a failed cell never prints an expanded value: redacted before the note is cut', async () => {
