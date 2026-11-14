@@ -21,6 +21,6 @@
     "@fwd-stack/prettier-config": "workspace:*",
     "eslint": "^9.39.5",
     "prettier": "3.9.10",
-    "typescript": "^5.9.0"
+    "typescript": "^7.0.2"
   }
 }

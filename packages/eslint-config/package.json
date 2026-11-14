@@ -29,7 +29,7 @@
   "devDependencies": {
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.5",
-    "typescript": "^5.9.0",
+    "typescript": "^7.0.2",
     "next": "^16.4.5"
   }
 }
