@@ -31,44 +31,47 @@ node ~/.claude/fwd/skills/ui-probe/probe.mjs <probe.mjs> [--base <url>] [--expec
 ```
 
 The runner reads `featureAcceptance` in `.claude/fwd.json` (the same block the contact sheet
-uses): `baseUrl`, `productionUrl`, `widths`, `signIn`, `pageScope` and `packageDir`. Set
+uses): `baseUrl`, `productionUrl`, `widths`, `signIn`, `pageScope`, `loading` and `packageDir`. Set
 `touch: true` on the phone width, so a phone press is a touch tap. The base is `--base`, else
-`PROBE_BASE`, else `baseUrl`; every production origin is refused.
+`PROBE_BASE`, else `baseUrl`. Every `productionUrl` origin is refused; with no `productionUrl` set
+nothing is, and the run says so, so set it.
 
 ```js
 // probes/search-clear.mjs: one tap on the search ✕ empties the field and keeps focus.
-export default async function ({ goto, onPage, press, check, page }) {
+export default async function ({ goto, onPage, press, settled, check }) {
   await goto('/search');
-  const input = onPage('[data-search] input');
+  const field = onPage('[data-search]');
+  const input = field.locator('input');
   await input.fill('zzq');
-  const clear = onPage('[data-search] button[aria-label="Clear search"]');
-  const before = await press(clear); // one real tap or click at the centre
-  await page.waitForTimeout(250);
-  check(
-    (await input.inputValue()) === '',
-    'one press empties the field',
-    `value=${await input.inputValue()}`,
-  );
+  await press(field.getByRole('button', { name: 'Clear search' })); // one real tap or click
+  await settled(field); // the engine's own animations, not a guessed delay
+  const value = await input.inputValue();
+  check(value === '', 'one press empties the field', `value=${value}`);
   check(
     await input.evaluate((el) => el === document.activeElement),
     'the field keeps focus',
-  );
-  const after = await clear.boundingBox();
-  check(
-    !!after && Math.abs(after.x - before.x) < 1,
-    'the ✕ holds its box',
-    `x ${before.x} to ${after?.x}`,
   );
 }
 // Optional: export const widths = ['phone']; export const signedOut = true;
 ```
 
-The probe gets: `page`, `base`, `width`, `touch`, `goto(route)` (fails on an HTTP error),
-`onPage(selector)` and `onPageRole(role, name)` (scoped to `pageScope`, so a probe never measures
-the app shell's identical control), `press(locator)`, `settled(locator)` and
-`check(ok, label, saw)`. It runs once per width in a fresh, signed-in context with service workers
-blocked. Each check prints `PASS` or `FAIL` with the width and what it saw. The run exits 1 on any
-failed check, a probe that threw, or a run with no checks at all; 2 when it cannot run.
+The probe gets:
+
+- `goto(route, { expectRedirect })`: fails on an HTTP error or on landing anywhere but the asked
+  path on the base origin (a sign-in wall, another origin), then waits for the project's `loading`
+  markers to clear, so a probe never measures a skeleton.
+- `onPage(selector)` and `onPageRole(role, name)`: scoped to `pageScope`, so a probe never
+  measures the app shell's identical control. They stay strict: a selector that matches two
+  elements throws rather than measuring whichever came first. Make it unique, or say which with
+  `:visible`, `.first()` or `.nth()`.
+- `press(locator)`, `settled(locator)`, `check(ok, label, saw)`, and `page`, `base`, `width` and
+  `touch`.
+
+It runs once per width in a fresh, signed-in context with service workers blocked; a touch width
+also gets a phone's mobile viewport handling. Each check prints `PASS` or `FAIL` with the width and
+what it saw, and output is redacted of credential-named environment values. The run exits 1 on
+any failed check, a probe that threw, or a run with no checks at all; 2 when it cannot run (no
+project setup, a probe that does not load, no browser).
 
 ## How to write one
 

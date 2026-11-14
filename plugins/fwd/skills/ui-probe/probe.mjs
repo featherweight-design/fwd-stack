@@ -19,7 +19,16 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { isMain } from '../../lib/is-main.mjs';
-import { baseUrlError, widthErrors } from '../feature-acceptance/inventory.mjs';
+import {
+  DEFAULT_LOADING,
+  redactConsole,
+  runStep,
+} from '../feature-acceptance/contact-sheet.mjs';
+import {
+  baseUrlError,
+  registerSecretEnv,
+  widthErrors,
+} from '../feature-acceptance/inventory.mjs';
 import {
   acceptanceConfig,
   importFromProject,
@@ -30,6 +39,9 @@ import {
   runTool,
   SetupError,
 } from '../feature-acceptance/project.mjs';
+
+/** How long goto waits for the page's loading markers to clear. */
+export const LOADING_WAIT_MS = 15_000;
 
 /** Wait for every animation running on an element and its subtree, rather than guessing a delay. */
 export async function settled(locator) {
@@ -50,6 +62,8 @@ export async function settled(locator) {
  */
 export async function press(page, locator, { touch }) {
   await locator.waitFor({ state: 'visible' });
+  // A box below the fold is off-screen coordinates, and a tap there lands on nothing.
+  await locator.scrollIntoViewIfNeeded();
   await settled(locator);
   const box = await locator.boundingBox();
   if (!box) throw new Error('press: the element has no box to press');
@@ -91,15 +105,16 @@ export function verdict(
       note: 'NO CHECKS RAN. A probe with no checks is not evidence.',
     };
   if (expectFail)
-    return failed > 0
+    return failed > 0 && !threw
       ? {
           code: 0,
           note: `mutation run: ${failed} check(s) failed, as they must with the fix reverted`,
         }
       : {
           code: 1,
+          // A crash at one width can sit beside a failed check at another; neither is the fix.
           note: threw
-            ? 'mutation run: the probe crashed instead of failing a check, so it shows nothing about the fix'
+            ? 'mutation run: the probe crashed, so it shows nothing about the fix'
             : 'mutation run: every check passed with the fix reverted, so the probe does not test the fix',
         };
   if (threw || failed > 0)
@@ -126,6 +141,17 @@ export function pickWidths(configured, only) {
 }
 
 async function main() {
+  // Everything printed goes through redact: sign-in errors and page text can carry a credential.
+  registerSecretEnv();
+  const restore = redactConsole();
+  try {
+    await run();
+  } finally {
+    restore();
+  }
+}
+
+async function run() {
   const { flags, positional } = parseArgs(process.argv.slice(2), {
     valued: ['base', 'root'],
     switches: ['expect-fail'],
@@ -147,6 +173,8 @@ async function main() {
   ).replace(/\/$/, '');
   const baseError = baseUrlError(base, { productionUrl: cfg.productionUrl });
   if (baseError) throw new SetupError(baseError);
+  if (!cfg.productionUrl)
+    console.log('no productionUrl set, so production is not refused');
 
   const probeFile = path.resolve(positional[0]);
   const mod = await import(pathToFileURL(probeFile).href).catch((error) => {
@@ -184,19 +212,25 @@ async function main() {
     cfg.packageDir,
   );
   const scope = cfg.pageScope ?? 'main';
+  const loading = cfg.loading ?? DEFAULT_LOADING;
 
   console.log(
     `probing ${base} with ${path.relative(root, probeFile)}${flags['expect-fail'] ? ' (mutation run)' : ''}`,
   );
   const report = createReport();
   let threw = false;
-  const browser = await chromium.launch();
+  const browser = await chromium.launch().catch((error) => {
+    throw new SetupError(
+      `the browser did not start (is Chromium installed? npx playwright install chromium): ${error.message}`,
+    );
+  });
   try {
     for (const width of widths) {
       const touch = width.touch === true;
       const context = await browser.newContext({
         viewport: { width: width.width, height: width.height },
         hasTouch: touch,
+        // A touch width is a phone: mobile viewport handling and touch events, as a phone has.
         isMobile: touch,
         serviceWorkers: 'block',
       });
@@ -216,13 +250,20 @@ async function main() {
           onPage,
           onPageRole: (role, name) =>
             (scope ? page.locator(scope) : page).getByRole(role, { name }),
-          goto: async (route) => {
-            const response = await page.goto(`${base}${route}`, {
-              waitUntil: 'domcontentloaded',
-            });
-            if (response && response.status() >= 400)
-              throw new Error(`${route} answered ${response.status()}`);
-            return response;
+          // The contact sheet's goto: an HTTP error, or landing anywhere but the asked path on the
+          // asked origin (a sign-in wall, another origin), throws. Then the page's loading markers
+          // must clear, so no probe measures a skeleton.
+          goto: async (route, { expectRedirect } = {}) => {
+            await runStep(
+              page,
+              { goto: route, expectRedirect },
+              { base, scope },
+            );
+            for (const marker of loading)
+              await page
+                .locator(marker)
+                .first()
+                .waitFor({ state: 'hidden', timeout: LOADING_WAIT_MS });
           },
           press: (locator) => press(page, locator, { touch }),
           settled,

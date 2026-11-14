@@ -17,8 +17,9 @@ function fakePage() {
     mouse: { click: async (x, y) => calls.push(['click', x, y]) },
   };
 }
-const locator = (box) => ({
+const locator = (box, seen = []) => ({
   waitFor: async () => {},
+  scrollIntoViewIfNeeded: async () => seen.push('scrolled'),
   evaluate: async () => {},
   boundingBox: async () => box,
 });
@@ -32,6 +33,18 @@ test('press taps at the centre with touch and clicks without', async () => {
     ['tap', 30, 25],
     ['click', 30, 25],
   ]);
+});
+
+test('press scrolls the element into view before reading its box', async () => {
+  const seen = [];
+  await press(
+    fakePage(),
+    locator({ x: 0, y: 900, width: 10, height: 10 }, seen),
+    {
+      touch: true,
+    },
+  );
+  assert.deepEqual(seen, ['scrolled']);
 });
 
 test('press refuses an element with no box', async () => {
@@ -72,6 +85,13 @@ test('verdict: a mutation run passes only when a check failed', () => {
   );
   assert.equal(crashed.code, 1);
   assert.match(crashed.note, /crashed/);
+  // A crash at one width is not hidden by a failed check at another.
+  const mixed = verdict(
+    { passed: 1, failed: 1, threw: true },
+    { expectFail: true },
+  );
+  assert.equal(mixed.code, 1);
+  assert.match(mixed.note, /crashed/);
 });
 
 test('pickWidths runs every width unless the probe names some', () => {
