@@ -33,7 +33,7 @@ Copilot caught and Claude's review missed (the evidence is under the change free
   for the user" stop on a destructive path do not apply; read the diff's deletes and overwrites with
   the care those rules were written for. Without the heading the gate still accepts one Copilot round
   on a risky PR; that path exists only for the rollback trigger below and is never used otherwise.
-- **`## Risk: not risky`** (Hugh, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review.
+- **`## Risk: not risky`** (owner ruling, 2026-10-30): risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review.
   Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
 - **Budget stop.** The `## Copilot budget stop` door is still in the gate, but do not use it: on a
   risky PR that declares `## Copilot off` the gate ignores it, and it is not a substitute for that

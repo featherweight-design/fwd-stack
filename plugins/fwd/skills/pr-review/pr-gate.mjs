@@ -889,7 +889,7 @@ const needed = destructive
       ? 1
       : 2;
 // OWNER RULING 2026-10-30: ONE Copilot round per code PR. Copilot review is billed per review to
-// the org's AI credits, and Hugh judged confirmation rounds not worth their cost. A code PR meets the
+// the org's AI credits, and the owner judged confirmation rounds not worth their cost. A code PR meets the
 // bar once it has one scored round (any result): the agent fixes every valid finding and merges on
 // green CI. A doc-only PR takes none (§9). `needed` and the clean streak are still printed for
 // context, but they no longer decide the bar.
