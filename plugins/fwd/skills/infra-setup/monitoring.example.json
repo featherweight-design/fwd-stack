@@ -1,0 +1,117 @@
+{
+  "app": "acme-web",
+  "sentry": {
+    "org": "acme",
+    "dashboards": [
+      {
+        "title": "Acme: errors",
+        "projects": [1],
+        "environment": ["production"],
+        "period": "14d",
+        "widgets": [
+          {
+            "title": "Errors per hour",
+            "displayType": "line",
+            "widgetType": "error-events",
+            "interval": "1h",
+            "queries": [
+              {
+                "name": "",
+                "fields": ["count()"],
+                "aggregates": ["count()"],
+                "columns": [],
+                "conditions": "",
+                "orderby": ""
+              }
+            ]
+          },
+          {
+            "title": "Top issues",
+            "displayType": "table",
+            "widgetType": "issue",
+            "queries": [
+              {
+                "name": "",
+                "fields": ["issue", "title", "events"],
+                "aggregates": [],
+                "columns": ["issue", "title", "events"],
+                "conditions": "is:unresolved",
+                "orderby": "freq"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "posthog": {
+    "projectId": 1,
+    "insights": [
+      {
+        "name": "Acme: sign-up funnel",
+        "description": "Landing to account created.",
+        "query": {
+          "kind": "InsightVizNode",
+          "source": {
+            "kind": "FunnelsQuery",
+            "series": [
+              { "kind": "EventsNode", "event": "$pageview" },
+              { "kind": "EventsNode", "event": "example_signup_started" },
+              { "kind": "EventsNode", "event": "example_signup_completed" }
+            ],
+            "dateRange": { "date_from": "-30d" },
+            "funnelsFilter": {
+              "funnelWindowInterval": 7,
+              "funnelWindowIntervalUnit": "day"
+            }
+          }
+        }
+      },
+      {
+        "name": "Acme: daily sign-ups",
+        "query": {
+          "kind": "InsightVizNode",
+          "source": {
+            "kind": "TrendsQuery",
+            "series": [
+              {
+                "kind": "EventsNode",
+                "event": "example_signup_completed",
+                "math": "total"
+              }
+            ],
+            "interval": "day",
+            "dateRange": { "date_from": "-30d" }
+          }
+        }
+      }
+    ],
+    "dashboards": [
+      {
+        "name": "Acme: growth",
+        "description": "Sign-ups at a glance.",
+        "insights": ["Acme: sign-up funnel", "Acme: daily sign-ups"]
+      }
+    ]
+  },
+  "betterstack": {
+    "heartbeats": [
+      { "name": "Acme nightly job", "period": 86400, "grace": 3600 }
+    ],
+    "statusPages": [
+      {
+        "subdomain": "acme-status-example",
+        "company_name": "Acme",
+        "timezone": "UTC",
+        "resources": [
+          { "public_name": "Website", "monitor": "acme.example.com" },
+          {
+            "public_name": "Nightly job",
+            "heartbeat": "Acme nightly job",
+            "widget_type": "plain"
+          }
+        ]
+      }
+    ]
+  }
+}

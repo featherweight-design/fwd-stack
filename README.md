@@ -219,7 +219,7 @@ marketplace first:
 | `waiting-on-me`      | The user's open roadmap items, ranked by how much each unblocks; read-only                                     |
 | `usage-report`       | Splits recorded Claude Code usage (weighted tokens) by project, model and session                              |
 | `copy-review`        | Writing and reviewing customer-facing copy against the project's voice and locked vocabulary                   |
-| `infra-setup`        | Hosting, database and monitoring defaults, staging footprint and a names-only secrets inventory                |
+| `infra-setup`        | Hosting, database and monitoring defaults, dashboards by API, staging footprint, names-only secrets list       |
 | `backlog-audit`      | Audits, triages and prioritises the GitHub Issues backlog, and governs intake                                  |
 | `ui-audit`           | Runs the project's UI sweep, triages captures for layout breakage, files on approval                           |
 | `ui-probe`           | Probes: press the real screen at both widths, measure it, and prove the check fails with the fix reverted      |
