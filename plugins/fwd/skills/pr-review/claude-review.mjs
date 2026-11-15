@@ -8,7 +8,8 @@
 // The rule, kept loose on purpose because real records are short ("cavecrew-reviewer: no
 // findings.", "One-sentence revert to the exact text of #N; no logic change."):
 //   - the section is the heading line's own text after "Claude review" plus everything up to the
-//     next `#` or `##` heading, with HTML comments and sub-heading lines (`### Findings`) removed;
+//     next `#` or `##` heading, with HTML comments, sub-heading lines (`### Findings`), fenced code
+//     blocks and inline code spans removed;
 //   - it is split into clauses at . ; : , ! ? ( ) and dashes between words, each lowercased with
 //     markup and punctuation dropped;
 //   - it is NOT a record when no clause is left, when the first clause opens with pending, tbd,
@@ -71,9 +72,16 @@ export const RECORD_HINT =
   'write the reviewer and what it found, e.g. "cavecrew-reviewer: no findings." or ' +
   '"cavecrew-reviewer: 2 findings (1 Medium, 1 Low), both fixed."';
 
+// Code is quoted material, not the review's status: a fenced block or an inline span (an example
+// such as `"n/a"`) is dropped before clauses are judged, so it can never read as a placeholder.
 const clauses = (text) =>
   text
     .replace(/<!--[\s\S]*?(?:-->|$)/g, ' ')
+    .replace(
+      /^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?(?:^[ \t]*\1[ \t]*$|(?![\s\S]))/gm,
+      ' ',
+    )
+    .replace(/`[^`\n]*`/g, ' ')
     .replace(/^[ \t]*#{3,}(?:[ \t].*)?$/gm, ' ')
     .split(/[.;:,!?()\n]|\s[-–—]+\s/)
     .map((c) =>

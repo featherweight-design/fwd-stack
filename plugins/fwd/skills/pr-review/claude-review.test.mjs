@@ -376,3 +376,28 @@ test('the door does not apply without the heading or on a non-risky PR', () => {
   );
   assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), false), null);
 });
+
+test('a placeholder word inside code is quoted material, not a placeholder', () => {
+  const inline = claudeReviewState(
+    body(
+      'cavecrew-reviewer: 1 Low, fixed. The parser now maps `"n/a"` to empty.',
+    ),
+  );
+  assert.equal(inline.recorded, true);
+  const fenced = claudeReviewState(
+    body(
+      'cavecrew-reviewer: no findings.\n\n```ts\nconst label = "n/a";\n// TBD\n```',
+    ),
+  );
+  assert.equal(fenced.recorded, true);
+});
+
+test('a placeholder outside code still blocks, even next to code', () => {
+  const r = claudeReviewState(body('Reviewer: n/a. See `x.ts`.'));
+  assert.equal(r.recorded, false);
+});
+
+test('a section that is only code holds no record', () => {
+  const r = claudeReviewState(body('```\ncavecrew-reviewer: no findings\n```'));
+  assert.equal(r.recorded, false);
+});
