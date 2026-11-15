@@ -18,6 +18,16 @@ test('a head with no checks at all is a problem, not a green', () => {
   assert.match(problems.join(), /no checks on this head/);
 });
 
+test('a head whose only checks were skipped is CI not run, not green', () => {
+  const { problems, count } = ciProblemsOf({
+    runs: [run(1, 'dependabot-automerge', 'completed', 'skipped')],
+    statuses: [],
+    workflowRuns: [{ name: 'Dependabot auto-merge', status: 'completed' }],
+  });
+  assert.equal(count, 1);
+  assert.match(problems.join(), /CI not run on this head/);
+});
+
 test('a queued check blocks', () => {
   const { problems } = ciProblemsOf({
     runs: [run(2, 'test', 'queued')],

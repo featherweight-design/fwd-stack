@@ -51,5 +51,13 @@ export function ciProblemsOf({ runs, statuses, workflowRuns = [] }) {
     problems.push(
       'no checks on this head yet (CI not registered or still queued)',
     );
+  else if (
+    problems.length === 0 &&
+    ![...newest.values()].some((r) => r.conclusion === 'success') &&
+    !statuses.some((s) => s.state === 'success')
+  )
+    problems.push(
+      'CI not run on this head: every check was skipped or neutral (push again or re-run CI)',
+    );
   return { problems, count };
 }
