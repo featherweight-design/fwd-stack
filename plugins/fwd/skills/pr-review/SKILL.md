@@ -321,6 +321,9 @@ chaining past them.
   and it keeps running across re-requests. A hand-rolled `until the count rises; exit` loop wakes on round 1
   and then nothing is watching: round 2 lands in silence, and silence reads as waiting (it happened on four PRs
   in one week). When it prints `TIMED OUT`, re-arm it. The rules below are what it implements.
+- **Under Bash `run_in_background`, add `--exit-on-ci`.** A background command wakes you only when it exits,
+  not when it prints, so without the flag a green or red CI sits unnoticed until the 29-minute timeout. With it,
+  the watcher exits on the head's first terminal CI state (0 passed, 1 failed) or when the PR ends.
 - If you hand-roll a poll instead, every ~240–270s is enough (the shipped watcher polls every 45s
   because it costs nothing between lines). Count reviews whose `.user.type == "Bot"` — filtering on
   the bare login `"Copilot"` matches nothing and times out silently.

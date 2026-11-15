@@ -85,7 +85,9 @@ acts on messages. Two lanes stalled 8 and 19 hours this way: one waited with a `
 to a log, which can never wake a session.
 
 - Wait with a watcher that **exits** on the event: the `pr-review` skill's `pr-watch.mjs` under
-  the Monitor tool, or a Bash `run_in_background` `until` loop that exits when the review lands
+  the Monitor tool; under Bash `run_in_background`, only with `--exit-on-ci` (without it, it
+  prints CI's result but exits only at its timeout, and a background command wakes you only on
+  exit); or a Bash `run_in_background` `until` loop that exits when the review lands
   (the review count or the latest review's `commit_id` changes) **or** CI reaches any terminal
   state (success, failure, cancelled).
 - Key the wait on the PR, never on a commit captured before a push: each poll re-reads the PR's
