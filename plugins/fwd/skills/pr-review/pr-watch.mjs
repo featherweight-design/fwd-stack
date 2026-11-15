@@ -10,7 +10,10 @@
 // never exits silently: at `--minutes` (default 29, just inside Monitor's 30-minute cap) it prints that it timed
 // out with the PR still open, so the lane re-arms it. Why it exists: watch-core.mjs.
 //
-//   node pr-watch.mjs <pr> [--repo owner/name] [--minutes N] [--interval S]
+// Under Bash `run_in_background` instead of Monitor, printed lines wake nobody: only the exit does. There, pass
+// `--exit-on-ci` and it exits on the head's first terminal CI state (0 passed, 1 failed), or on the PR ending (0).
+//
+//   node pr-watch.mjs <pr> [--repo owner/name] [--minutes N] [--interval S] [--exit-on-ci]
 
 import { execFileSync } from 'node:child_process';
 import {
@@ -28,13 +31,14 @@ const flag = (name) => {
 const pr = args.find((a) => /^\d+$/.test(a));
 if (!pr) {
   console.error(
-    'usage: pr-watch.mjs <pr> [--repo owner/name] [--minutes N] [--interval S]',
+    'usage: pr-watch.mjs <pr> [--repo owner/name] [--minutes N] [--interval S] [--exit-on-ci]',
   );
   process.exit(2);
 }
 const started = Date.now();
 const minutes = Number(flag('--minutes') ?? 29);
 const intervalMs = Number(flag('--interval') ?? 45) * 1000;
+const exitOnCi = args.includes('--exit-on-ci');
 
 const gh = (path, jq) => {
   // Bounded, so a cycle's three reads fit the 30s `fitsAnotherPoll` budgets for them: a hung call
@@ -120,6 +124,8 @@ while (fitsAnotherPoll(Date.now(), deadline, intervalMs)) {
   state = out.state;
   for (const e of out.events) say(describe(pr, e));
   if (state.ended) process.exit(0);
+  const ci = exitOnCi && out.events.find((e) => e.type === 'ci');
+  if (ci) process.exit(ci.ok ? 0 : 1);
 }
 say(
   `#${pr} watcher TIMED OUT after ${minutes} min with the PR still open: re-arm it (nothing new since the last line)`,
