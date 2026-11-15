@@ -36,6 +36,12 @@ shape: `displayType` (`line`, `area`, `bar`, `table`, `big_number`, `top_n`), `w
 On update the tool sends the whole widget list, because that is how Sentry's edit endpoint works.
 Widgets on the dashboard that the spec does not name are sent back unchanged, so they stay.
 
+Sentry also rebuilds the dashboard's saved filters whenever an edit sends any of `projects`,
+`environment`, `period`, `utc` or `filters`. So when the spec sets any of them, the tool copies the
+live values in for the ones it leaves out (the "all projects" setting, environment, time range,
+UTC, and `filters` such as the release and global filters). A spec that sets only `period` changes
+only the period.
+
 ## `posthog`
 
 | Key          | Type   | Notes                                                              |
@@ -83,9 +89,17 @@ with a note.
 ## Matching rules, all vendors
 
 - An object is unchanged when every field the spec states equals the live value. Fields the spec
-  leaves out are not compared and not sent. A field the vendor never reads back (a status page
-  `password`, say) shows as an update on every run, so set it by hand instead.
+  leaves out are not compared and not sent.
+- Some fields are accepted but never read back, so they are not compared: a change to one alone is
+  not seen. They are sent on create and alongside any other update. They are a Better Stack
+  heartbeat's `team_name`, a status page's `password`, and PostHog insight and dashboard `tags`.
+  To change only one of them, change it in the console.
 - When two live objects share a spec name, the tool skips that object with a note rather than
   guess. Rename one by hand, then re-run.
+- Tokens go only to the vendors' own API hosts over https: `sentry.io` and `*.sentry.io`;
+  `us.posthog.com`, `eu.posthog.com`, `us.i.posthog.com` and `eu.i.posthog.com`;
+  `incidents.betterstack.com` and `uptime.betterstack.com`. A `host` that is anything else (a
+  self-hosted Sentry, say) is refused before any request unless the run names it with
+  `--allow-host <hostname>`. Redirects are refused too.
 - Nothing is ever deleted. To remove an object, delete it in the vendor's console and take it out
   of the spec.

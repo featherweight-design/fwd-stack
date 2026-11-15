@@ -26,6 +26,7 @@ import {
   ENV,
   PLANNERS,
   VENDORS,
+  checkHost,
   formatPlan,
   parseArgs,
   parseEnvFile,
@@ -62,6 +63,8 @@ export function makeClient({ host, token, fetchImpl = globalThis.fetch }) {
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
+        // A redirect would replay the bearer token to wherever it points.
+        redirect: 'error',
       });
     } catch (e) {
       throw new Error(
@@ -197,14 +200,21 @@ export const STATE = {
 /** Reads state and plans each vendor in the spec. Returns `{ steps, notes, clients }`. */
 export async function plan(
   spec,
-  { env, only = null, apply = false, fetchImpl },
+  { env, only = null, apply = false, allowHosts = [], fetchImpl },
 ) {
   const steps = [];
   const notes = [];
   const clients = {};
-  for (const vendor of VENDORS) {
+  const selected = VENDORS.filter((v) => spec[v] && (!only || only === v));
+  // Every host is checked before the first request, so a bad one stops the run with nothing sent.
+  const hosts = Object.fromEntries(
+    selected.map((v) => [
+      v,
+      checkHost(v, spec[v].host ?? DEFAULT_HOSTS[v], allowHosts),
+    ]),
+  );
+  for (const vendor of selected) {
     const cfg = spec[vendor];
-    if (!cfg || (only && only !== vendor)) continue;
     const token = env[ENV[vendor]];
     if (!token) {
       if (apply)
@@ -215,7 +225,7 @@ export async function plan(
       continue;
     }
     const client = makeClient({
-      host: cfg.host ?? DEFAULT_HOSTS[vendor],
+      host: hosts[vendor],
       token,
       fetchImpl,
     });
@@ -225,19 +235,49 @@ export async function plan(
   return { steps, notes, clients };
 }
 
-/** Runs the plan's writes in order, filling in ids created by earlier steps. */
+const label = (s) => `${s.vendor} ${s.type} "${s.name}"`;
+
+/**
+ * Runs the plan's writes in order, filling in ids created by earlier steps. Stops at the first
+ * failure and logs what was done, where it failed and what did not run. Returns
+ * `{ done, failed, notRun }`, with `failed` null when every write went through.
+ */
 export async function applyPlan(steps, clients, log = () => {}) {
   const ids = new Map();
-  for (const s of steps) {
-    if (!s.request) continue;
-    const path = resolveRefs(s.request.path, ids);
-    const body = resolveRefs(s.request.body, ids);
-    const { data } = await clients[s.vendor].send(s.request.method, path, body);
-    if (s.saveAs) ids.set(s.saveAs, data?.data?.id ?? data?.id);
-    log(
-      `${s.action === 'create' ? 'created' : 'updated'}   ${s.vendor} ${s.type} "${s.name}"`,
-    );
+  const writes = steps.filter((s) => s.request);
+  const done = [];
+  let failed = null;
+  for (const s of writes) {
+    try {
+      const path = resolveRefs(s.request.path, ids);
+      const body = resolveRefs(s.request.body, ids);
+      const { data } = await clients[s.vendor].send(
+        s.request.method,
+        path,
+        body,
+      );
+      if (s.action === 'create') {
+        const id = data?.data?.id ?? data?.id;
+        if (id === undefined || id === null)
+          throw new Error(`${s.request.method} ${path} returned no id`);
+        if (s.saveAs) ids.set(s.saveAs, id);
+      }
+      done.push(s);
+      log(`${s.action === 'create' ? 'created' : 'updated'}   ${label(s)}`);
+    } catch (e) {
+      failed = { step: s, message: String(e?.message ?? e) };
+      break;
+    }
   }
+  const notRun = writes.slice(done.length + (failed ? 1 : 0));
+  if (failed) {
+    log(`failed    ${label(failed.step)}: ${failed.message}`);
+    for (const s of notRun) log(`not run   ${label(s)}`);
+    log(
+      `${done.length} done, failed at ${label(failed.step)}, ${notRun.length} not run`,
+    );
+  } else log(`${done.length} done, 0 failed, 0 not run`);
+  return { done, failed, notRun };
 }
 
 /** The environment with the env file's values added where a variable is not already set. */
@@ -278,11 +318,14 @@ if (executed) {
       env,
       only: args.only,
       apply: args.apply,
+      allowHosts: args.allowHosts,
     });
     console.log(formatPlan(steps, notes));
     if (args.apply) {
-      await applyPlan(steps, clients, (line) => console.log(line));
-      console.log('applied');
+      const { failed } = await applyPlan(steps, clients, (line) =>
+        console.log(redact(line, secrets)),
+      );
+      if (failed) process.exit(1);
     } else if (steps.some((s) => s.request))
       console.log('dry run: nothing written; re-run with --apply');
   } catch (e) {

@@ -23,20 +23,72 @@ export const DEFAULT_HOSTS = {
   betterstack: 'https://incidents.betterstack.com',
 };
 
-const USAGE = `usage: node monitoring-apply.mjs [--spec ${DEFAULT_SPEC}] [--env-file <path>] [--only sentry|posthog|betterstack] [--apply]`;
+// The only hosts a token is sent to, unless --allow-host names another. https only.
+export const ALLOWED_HOSTS = {
+  sentry: (h) => h === 'sentry.io' || h.endsWith('.sentry.io'),
+  posthog: (h) =>
+    [
+      'us.posthog.com',
+      'eu.posthog.com',
+      'us.i.posthog.com',
+      'eu.i.posthog.com',
+    ].includes(h),
+  betterstack: (h) =>
+    ['incidents.betterstack.com', 'uptime.betterstack.com'].includes(h),
+};
 
-/** `{ spec, envFile, only, apply }` from argv (without node and the script), or throws with the usage. */
+/** The vendor's API origin, or throws when the host is not https on the allowlist or --allow-host. */
+export function checkHost(vendor, host, allowHosts = []) {
+  let u;
+  try {
+    u = new URL(host);
+  } catch {
+    throw new Error(`${vendor}.host is not a URL: ${host}`);
+  }
+  if (u.protocol !== 'https:')
+    throw new Error(`${vendor}.host must use https: ${u.origin}`);
+  if (
+    u.username ||
+    u.password ||
+    u.port ||
+    u.search ||
+    u.hash ||
+    u.pathname !== '/'
+  )
+    throw new Error(`${vendor}.host must be a bare https origin: ${host}`);
+  if (!ALLOWED_HOSTS[vendor](u.hostname) && !allowHosts.includes(u.hostname))
+    throw new Error(
+      `${vendor}.host ${u.hostname} is not a known ${vendor} API host; pass --allow-host ${u.hostname} if it is yours`,
+    );
+  return u.origin;
+}
+
+const USAGE = `usage: node monitoring-apply.mjs [--spec ${DEFAULT_SPEC}] [--env-file <path>] [--only sentry|posthog|betterstack] [--allow-host <host>]... [--apply]`;
+
+/** `{ spec, envFile, only, allowHosts, apply }` from argv (without node and the script), or throws with the usage. */
 export function parseArgs(argv) {
-  const out = { spec: DEFAULT_SPEC, envFile: null, only: null, apply: false };
+  const out = {
+    spec: DEFAULT_SPEC,
+    envFile: null,
+    only: null,
+    allowHosts: [],
+    apply: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--apply') out.apply = true;
-    else if (a === '--spec' || a === '--env-file' || a === '--only') {
+    else if (
+      a === '--spec' ||
+      a === '--env-file' ||
+      a === '--only' ||
+      a === '--allow-host'
+    ) {
       const v = argv[++i];
       if (!v || v.startsWith('--'))
         throw new Error(`${a} needs a value\n${USAGE}`);
       if (a === '--spec') out.spec = v;
       else if (a === '--env-file') out.envFile = v;
+      else if (a === '--allow-host') out.allowHosts.push(v.toLowerCase());
       else if (!VENDORS.includes(v))
         throw new Error(
           `--only must be one of ${VENDORS.join(', ')}\n${USAGE}`,
@@ -88,15 +140,32 @@ export function subsetEqual(want, have) {
   return want === have;
 }
 
-/** The top-level keys of `want` whose values differ from `have`. */
-export function changedKeys(want, have) {
-  return Object.keys(want).filter((k) => !subsetEqual(want[k], have?.[k]));
+/**
+ * The top-level keys of `want` whose values differ from `have`. Keys in `writeOnly` are fields the
+ * vendor accepts but never reads back, so they are not compared (they would differ every run).
+ */
+export function changedKeys(want, have, writeOnly = []) {
+  return Object.keys(want).filter(
+    (k) => !writeOnly.includes(k) && !subsetEqual(want[k], have?.[k]),
+  );
 }
 
-const pick = (obj, keys) =>
-  Object.fromEntries(
+// Fields each object type accepts but does not return; sent on create and with any update.
+export const WRITE_ONLY = {
+  posthogInsight: ['tags'],
+  posthogDashboard: ['tags'],
+  heartbeat: ['team_name'],
+  statusPage: ['password'],
+};
+
+const updateBody = (want, changes, writeOnly) =>
+  pick(want, [...changes, ...writeOnly]);
+
+function pick(obj, keys) {
+  return Object.fromEntries(
     keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]),
   );
+}
 
 /** A list of human-readable problems with the spec; empty when it is usable. */
 export function validateSpec(spec) {
@@ -214,10 +283,38 @@ export function planSentry(cfg, state) {
       request: {
         method: 'PUT',
         path: `${base}${hit.id}/`,
-        body: { ...want, widgets: merged },
+        body: { ...keepPageFilters(want, hit), widgets: merged },
       },
     });
   });
+}
+
+// Sentry rebuilds a dashboard's whole saved-filter set when an edit sends any of projects,
+// environment, period, start, end, utc or filters (update_dashboard_filters assigns
+// `instance.filters = filters`). So when the spec sets any of them, the fields it leaves out are
+// copied from the live dashboard: the "all projects" setting (projects [-1]), environment, the
+// time range, utc, and filters such as release and the global filter.
+const SENTRY_FILTER_KEYS = [
+  'projects',
+  'environment',
+  'period',
+  'start',
+  'end',
+  'utc',
+  'filters',
+];
+export function keepPageFilters(want, live) {
+  if (!SENTRY_FILTER_KEYS.some((k) => k in want)) return want;
+  const out = { ...want };
+  for (const k of ['projects', 'environment', 'utc'])
+    if (!(k in out) && live[k] != null) out[k] = live[k];
+  // period and start/end are one time range: keep the live one only if the spec sets neither.
+  if (!['period', 'start', 'end'].some((k) => k in want))
+    for (const k of ['period', 'start', 'end'])
+      if (live[k] != null) out[k] = live[k];
+  if (want.filters || (live.filters && Object.keys(live.filters).length))
+    out.filters = { ...(live.filters ?? {}), ...(want.filters ?? {}) };
+  return out;
 }
 
 // The spec's widget over the existing one, keeping the ids Sentry needs to update in place.
@@ -270,7 +367,7 @@ export function planPosthog(cfg, state) {
       continue;
     }
     insightIds.set(i.name, hit.id);
-    const changes = changedKeys(want, hit);
+    const changes = changedKeys(want, hit, WRITE_ONLY.posthogInsight);
     steps.push(
       changes.length === 0
         ? step('posthog', 'insight', i.name, { action: 'unchanged' })
@@ -280,7 +377,7 @@ export function planPosthog(cfg, state) {
             request: {
               method: 'PATCH',
               path: `${base}/insights/${hit.id}/`,
-              body: pick(want, changes),
+              body: updateBody(want, changes, WRITE_ONLY.posthogInsight),
             },
           }),
     );
@@ -309,7 +406,7 @@ export function planPosthog(cfg, state) {
         }),
       );
     } else {
-      const changes = changedKeys(want, hit);
+      const changes = changedKeys(want, hit, WRITE_ONLY.posthogDashboard);
       steps.push(
         changes.length === 0
           ? step('posthog', 'dashboard', d.name, { action: 'unchanged' })
@@ -319,7 +416,7 @@ export function planPosthog(cfg, state) {
               request: {
                 method: 'PATCH',
                 path: `${base}/dashboards/${hit.id}/`,
-                body: pick(want, changes),
+                body: updateBody(want, changes, WRITE_ONLY.posthogDashboard),
               },
             }),
       );
@@ -395,7 +492,7 @@ export function planBetterstack(cfg, state) {
       continue;
     }
     heartbeatIds.set(h.name, hit.id);
-    const changes = changedKeys(h, hit);
+    const changes = changedKeys(h, hit, WRITE_ONLY.heartbeat);
     steps.push(
       changes.length === 0
         ? step('betterstack', 'heartbeat', h.name, { action: 'unchanged' })
@@ -405,7 +502,7 @@ export function planBetterstack(cfg, state) {
             request: {
               method: 'PATCH',
               path: `/api/v2/heartbeats/${hit.id}`,
-              body: pick(h, changes),
+              body: updateBody(h, changes, WRITE_ONLY.heartbeat),
             },
           }),
     );
@@ -458,7 +555,7 @@ export function planBetterstack(cfg, state) {
         }),
       );
     } else {
-      const changes = changedKeys(want, hit);
+      const changes = changedKeys(want, hit, WRITE_ONLY.statusPage);
       steps.push(
         changes.length === 0
           ? step('betterstack', 'status page', p.subdomain, {
@@ -470,7 +567,7 @@ export function planBetterstack(cfg, state) {
               request: {
                 method: 'PATCH',
                 path: `/api/v2/status-pages/${hit.id}`,
-                body: pick(want, changes),
+                body: updateBody(want, changes, WRITE_ONLY.statusPage),
               },
             }),
       );

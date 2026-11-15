@@ -11,6 +11,7 @@ import {
   sentryNext,
 } from './monitoring-apply.mjs';
 import {
+  checkHost,
   formatPlan,
   parseArgs,
   parseEnvFile,
@@ -38,11 +39,26 @@ test('parseArgs defaults to a dry run of the app spec', () => {
     spec: '.claude/fwd/monitoring.json',
     envFile: null,
     only: null,
+    allowHosts: [],
     apply: false,
   });
   assert.deepEqual(
-    parseArgs(['--only', 'posthog', '--apply', '--spec', 'x.json']),
-    { spec: 'x.json', envFile: null, only: 'posthog', apply: true },
+    parseArgs([
+      '--only',
+      'posthog',
+      '--apply',
+      '--spec',
+      'x.json',
+      '--allow-host',
+      'PostHog.Example.com',
+    ]),
+    {
+      spec: 'x.json',
+      envFile: null,
+      only: 'posthog',
+      allowHosts: ['posthog.example.com'],
+      apply: true,
+    },
   );
   assert.throws(() => parseArgs(['--only', 'datadog']), /--only must be/);
   assert.throws(() => parseArgs(['--spec']), /needs a value/);
@@ -327,6 +343,7 @@ function fakeVendors() {
     const body = init.body ? JSON.parse(init.body) : undefined;
     const auth = init.headers.Authorization;
     calls.push({ method, path: u.pathname, auth });
+    assert.equal(init.redirect, 'error');
     const p = u.pathname;
     let m;
     // Sentry
@@ -414,7 +431,8 @@ test('a second run changes nothing, and no run ever deletes', async () => {
   );
   const log = [];
   await applyPlan(first.steps, first.clients, (l) => log.push(l));
-  assert.equal(log.length, first.steps.length);
+  assert.equal(log.length, first.steps.length + 1);
+  assert.match(log.at(-1), /^\d+ done, 0 failed, 0 not run$/);
   assert.equal(db.phDashboards[0].tiles.length, 2);
   assert.equal(
     db.resources[db.pages[0].id][1].attributes.resource_id,
@@ -454,4 +472,204 @@ test('a dry run skips a vendor whose token is missing; --apply refuses with the 
     fetchImpl,
   });
   assert.deepEqual(only.notes, []);
+});
+
+test('checkHost allows each vendor API host over https and nothing else', () => {
+  assert.equal(checkHost('sentry', 'https://sentry.io'), 'https://sentry.io');
+  assert.equal(
+    checkHost('sentry', 'https://us.sentry.io/'),
+    'https://us.sentry.io',
+  );
+  assert.equal(
+    checkHost('posthog', 'https://eu.posthog.com'),
+    'https://eu.posthog.com',
+  );
+  assert.equal(
+    checkHost('posthog', 'https://us.i.posthog.com'),
+    'https://us.i.posthog.com',
+  );
+  assert.equal(
+    checkHost('betterstack', 'https://uptime.betterstack.com'),
+    'https://uptime.betterstack.com',
+  );
+  assert.throws(() => checkHost('sentry', 'http://sentry.io'), /https/);
+  assert.throws(
+    () => checkHost('sentry', 'https://sentry.io.evil.example'),
+    /--allow-host/,
+  );
+  assert.throws(
+    () => checkHost('sentry', 'https://evilsentry.io'),
+    /--allow-host/,
+  );
+  assert.throws(
+    () => checkHost('posthog', 'https://us.sentry.io'),
+    /--allow-host/,
+  );
+  assert.throws(
+    () => checkHost('sentry', 'https://sentry.io/api'),
+    /bare https origin/,
+  );
+  assert.throws(
+    () => checkHost('sentry', 'https://sentry.io:8443'),
+    /bare https origin/,
+  );
+  assert.throws(() => checkHost('sentry', 'not a url'), /not a URL/);
+  assert.equal(
+    checkHost('sentry', 'https://sentry.acme.example', ['sentry.acme.example']),
+    'https://sentry.acme.example',
+  );
+  assert.throws(
+    () =>
+      checkHost('sentry', 'http://sentry.acme.example', [
+        'sentry.acme.example',
+      ]),
+    /https/,
+  );
+});
+
+test('a spec host off the allowlist stops the run before any request', async () => {
+  const { fetchImpl, calls } = fakeVendors();
+  const spec = clone(example);
+  spec.betterstack.host = 'https://collector.evil.example';
+  await assert.rejects(
+    plan(spec, { env: { ...TOKENS }, fetchImpl }),
+    /collector\.evil\.example is not a known betterstack API host/,
+  );
+  assert.equal(calls.length, 0);
+  const ok = await plan(spec, {
+    env: { ...TOKENS },
+    only: 'sentry',
+    fetchImpl,
+  });
+  assert.ok(ok.steps.length > 0);
+});
+
+test('a Sentry update that sets only period keeps environment, all projects and filters', () => {
+  const cfg = {
+    org: 'acme',
+    dashboards: [{ title: 'Acme: errors', period: '7d' }],
+  };
+  const live = {
+    id: '9',
+    title: 'Acme: errors',
+    projects: [-1],
+    environment: ['production'],
+    period: '14d',
+    utc: true,
+    filters: { release: ['1.0.0'], globalFilter: [{ value: 'x' }] },
+    widgets: [],
+  };
+  const [s] = planSentry(cfg, { dashboards: [live] });
+  assert.equal(s.action, 'update');
+  assert.deepEqual(s.changes, ['period']);
+  const body = { ...s.request.body };
+  delete body.widgets;
+  assert.deepEqual(body, {
+    title: 'Acme: errors',
+    period: '7d',
+    projects: [-1],
+    environment: ['production'],
+    utc: true,
+    filters: { release: ['1.0.0'], globalFilter: [{ value: 'x' }] },
+  });
+});
+
+test('a Sentry update that sets no filter field sends none', () => {
+  const cfg = {
+    org: 'acme',
+    dashboards: [
+      { title: 'Acme: errors', widgets: [{ title: 'W', displayType: 'line' }] },
+    ],
+  };
+  const live = {
+    id: '9',
+    title: 'Acme: errors',
+    projects: [1],
+    period: '14d',
+    widgets: [],
+  };
+  const [s] = planSentry(cfg, { dashboards: [live] });
+  assert.deepEqual(Object.keys(s.request.body).sort(), ['title', 'widgets']);
+});
+
+test('fields that are never read back are not compared, but ride along on an update', () => {
+  const hb = { name: 'Job', period: 60, grace: 10, team_name: 'Acme team' };
+  const live = { id: '1', attributes: { name: 'Job', period: 60, grace: 10 } };
+  const same = planBetterstack(
+    { heartbeats: [hb] },
+    {
+      heartbeats: [live],
+      monitors: [],
+      statusPages: [],
+    },
+  );
+  assert.equal(same[0].action, 'unchanged');
+  const moved = planBetterstack(
+    { heartbeats: [{ ...hb, grace: 20 }] },
+    { heartbeats: [live], monitors: [], statusPages: [] },
+  );
+  assert.deepEqual(moved[0].changes, ['grace']);
+  assert.deepEqual(moved[0].request.body, {
+    grace: 20,
+    team_name: 'Acme team',
+  });
+
+  const insight = { name: 'I', tags: ['growth'], query: { kind: 'X' } };
+  const [ph] = planPosthog(
+    { projectId: 1, insights: [insight] },
+    { insights: [{ id: 3, name: 'I', query: { kind: 'X' } }], dashboards: [] },
+  );
+  assert.equal(ph.action, 'unchanged');
+});
+
+test('applyPlan stops at a create that returns no id and reports done, failed and not run', async () => {
+  const steps = [
+    {
+      vendor: 'v',
+      type: 't',
+      name: 'a',
+      action: 'update',
+      request: { method: 'PATCH', path: '/a' },
+    },
+    {
+      vendor: 'v',
+      type: 't',
+      name: 'b',
+      action: 'create',
+      saveAs: 'b',
+      request: { method: 'POST', path: '/b' },
+    },
+    {
+      vendor: 'v',
+      type: 't',
+      name: 'c',
+      action: 'create',
+      request: { method: 'POST', path: '/c/{{b}}' },
+    },
+    { vendor: 'v', type: 't', name: 'd', action: 'unchanged' },
+  ];
+  const sent = [];
+  const clients = {
+    v: {
+      send: async (method, path) => {
+        sent.push(path);
+        return { data: path === '/b' ? {} : { id: 1 } };
+      },
+    },
+  };
+  const log = [];
+  const r = await applyPlan(steps, clients, (l) => log.push(l));
+  assert.deepEqual(sent, ['/a', '/b']);
+  assert.deepEqual(
+    r.done.map((s) => s.name),
+    ['a'],
+  );
+  assert.equal(r.failed.step.name, 'b');
+  assert.match(r.failed.message, /POST \/b returned no id/);
+  assert.deepEqual(
+    r.notRun.map((s) => s.name),
+    ['c'],
+  );
+  assert.equal(log.at(-1), '1 done, failed at v t "b", 1 not run');
+  assert.ok(log.includes('not run   v t "c"'));
 });

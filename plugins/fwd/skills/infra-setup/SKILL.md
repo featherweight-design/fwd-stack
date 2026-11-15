@@ -105,7 +105,7 @@ Sentry dashboards, PostHog insights and dashboards, and Better Stack status page
   node <skill>/monitoring-apply.mjs --only posthog   # one vendor
   ```
 
-  It is idempotent (a second run reports everything unchanged), never deletes, and leaves alone anything the spec does not name. Read the dry run before `--apply`.
+  It is idempotent (a second run reports everything unchanged), never deletes, and leaves alone anything the spec does not name. Read the dry run before `--apply`. Tokens go only to each vendor's own https API hosts; a self-hosted `host` needs `--allow-host <hostname>`. If a write fails, the run stops and lists what was done, where it failed and what did not run.
 
 - [ ] **The owner creates the tokens (owner)** and keeps them in `~/.config/fwd/monitoring.env` (outside every repo; `--env-file` names another file). The tool reads only these variables, and prints none of them:
   - `FWD_SENTRY_TOKEN`: a Sentry auth token with `org:read` (the dashboard endpoints accept `org:read`, `org:write` or `org:admin`; use `org:write` if a write is refused).
