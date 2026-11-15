@@ -18,8 +18,19 @@ export const isReviewerRun = (w) =>
 // "Copilot integration tests") is ordinary CI and still gates the merge.
 const isReviewerCheck = (name) => name === 'copilot-pull-request-reviewer';
 
-export function ciProblemsOf({ runs, statuses, workflowRuns = [] }) {
+// `mergeableState` is the REST pull's `mergeable_state`. GitHub runs no pull_request CI on a PR
+// that conflicts with its base, so a conflict shows up only as missing or skipped checks; name it.
+export function ciProblemsOf({
+  runs,
+  statuses,
+  workflowRuns = [],
+  mergeableState,
+}) {
   const problems = [];
+  if (mergeableState === 'dirty')
+    problems.push(
+      'conflicts with base: rebase onto the base branch and push (no pull_request CI runs on a conflicting PR)',
+    );
   const reviewerSuites = new Set(
     workflowRuns.filter(isReviewerRun).map((w) => w.check_suite_id),
   );
@@ -58,6 +69,13 @@ export function ciProblemsOf({ runs, statuses, workflowRuns = [] }) {
   )
     problems.push(
       'CI not run on this head: every check was skipped or neutral (push again or re-run CI)',
+    );
+  if (
+    mergeableState === 'unknown' &&
+    problems.some((p) => /^(no checks|CI not run)/.test(p))
+  )
+    problems.push(
+      'mergeability unknown: if the PR conflicts with its base, rebase and push',
     );
   return { problems, count };
 }

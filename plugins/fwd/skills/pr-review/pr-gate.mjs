@@ -1210,7 +1210,12 @@ if (action === 'merge') {
   const workflowRuns = gh(`repos/${repo}/actions/runs?head_sha=${sha}`).flatMap(
     (p) => p.workflow_runs ?? [],
   );
-  const ci = ciProblemsOf({ runs, statuses, workflowRuns });
+  const ci = ciProblemsOf({
+    runs,
+    statuses,
+    workflowRuns,
+    mergeableState: prData.mergeable_state,
+  });
   ciProblems.push(...ci.problems);
   say(
     ciProblems.length === 0,
