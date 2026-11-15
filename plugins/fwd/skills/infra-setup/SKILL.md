@@ -92,6 +92,28 @@ Staging exists to be checked before a release, not to run all day. Neon bills co
 
 - [ ] **Add the ingest host to the CSP's `connect-src`.**
 
+## Monitoring dashboards by API
+
+Sentry dashboards, PostHog insights and dashboards, and Better Stack status pages and heartbeats are built from a spec by API, never clicked together in a console.
+
+- [ ] **The app keeps its spec at `.claude/fwd/monitoring.json`**, in the schema in [`monitoring-spec.md`](monitoring-spec.md) ([`monitoring.example.json`](monitoring.example.json) is a fictional example). It holds names and ids, never a token. _Why:_ a dashboard made by hand cannot be reviewed, rebuilt or copied to the next app, and drifts without anyone noticing.
+- [ ] **Apply it with `monitoring-apply.mjs`** from this skill's folder, run from the app's root:
+
+  ```bash
+  node <skill>/monitoring-apply.mjs                  # dry run: prints create / update / unchanged per object
+  node <skill>/monitoring-apply.mjs --apply          # makes those writes
+  node <skill>/monitoring-apply.mjs --only posthog   # one vendor
+  ```
+
+  It is idempotent (a second run reports everything unchanged), never deletes, and leaves alone anything the spec does not name. Read the dry run before `--apply`.
+
+- [ ] **The owner creates the tokens (owner)** and keeps them in `~/.config/fwd/monitoring.env` (outside every repo; `--env-file` names another file). The tool reads only these variables, and prints none of them:
+  - `FWD_SENTRY_TOKEN`: a Sentry auth token with `org:read` (the dashboard endpoints accept `org:read`, `org:write` or `org:admin`; use `org:write` if a write is refused).
+  - `FWD_POSTHOG_KEY`: a PostHog personal API key scoped to the project, with `insight:read`, `insight:write`, `dashboard:read` and `dashboard:write`.
+  - `FWD_BETTERSTACK_TOKEN`: a Better Stack team-scoped Incidents (Uptime) API token, or a global API token (then heartbeats need `team_name` in the spec).
+
+  In a dry run a vendor without its token is skipped with a note. `--apply` refuses to start until every vendor it would touch has one. _Why:_ the tokens can edit live monitoring, so they stay with the owner and out of every file an agent writes.
+
 ## Email (transactional sending domain)
 
 - [ ] **SPF** on the sending domain naming the provider. _Why:_ unauthenticated mail lands in spam or is rejected.
