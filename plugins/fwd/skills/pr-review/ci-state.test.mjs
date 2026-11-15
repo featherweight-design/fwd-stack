@@ -28,6 +28,34 @@ test('a head whose only checks were skipped is CI not run, not green', () => {
   assert.match(problems.join(), /CI not run on this head/);
 });
 
+test('a conflicting PR says rebase, first', () => {
+  const { problems } = ciProblemsOf({
+    runs: [run(1, 'dependabot-automerge', 'completed', 'skipped')],
+    statuses: [],
+    mergeableState: 'dirty',
+  });
+  assert.match(problems[0], /^conflicts with base: rebase/);
+});
+
+test('unknown mergeability with no CI run adds the rebase hint', () => {
+  const { problems } = ciProblemsOf({
+    runs: [],
+    statuses: [],
+    mergeableState: 'unknown',
+  });
+  assert.match(problems.join(), /no checks on this head/);
+  assert.match(problems.join(), /mergeability unknown/);
+});
+
+test('unknown mergeability with green CI is not a problem', () => {
+  const { problems } = ciProblemsOf({
+    runs: [run(1, 'test', 'completed', 'success')],
+    statuses: [],
+    mergeableState: 'unknown',
+  });
+  assert.deepEqual(problems, []);
+});
+
 test('a queued check blocks', () => {
   const { problems } = ciProblemsOf({
     runs: [run(2, 'test', 'queued')],
