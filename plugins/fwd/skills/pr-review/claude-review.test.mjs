@@ -352,7 +352,6 @@ test('a CRLF body still declares and records', () => {
   assert.equal(riskyDoor(off(BOTH).replace(/\n/g, '\r\n')).opens, true);
 });
 
-
 test('a placeholder word inside code is quoted material, not a placeholder', () => {
   const inline = claudeReviewState(
     body(

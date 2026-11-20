@@ -93,9 +93,7 @@ for (;;) {
     await sleep(10_000);
   }
 }
-say(
-  `#${pr} watcher armed; reporting what comes next`,
-);
+say(`#${pr} watcher armed; reporting what comes next`);
 
 const deadline = started + minutes * 60_000;
 failures = 0;
