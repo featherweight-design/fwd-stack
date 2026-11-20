@@ -40,7 +40,7 @@ const intervalMs = Number(flag('--interval') ?? 45) * 1000;
 const exitOnCi = args.includes('--exit-on-ci');
 
 const gh = (path, jq) => {
-  // Bounded, so a cycle's three reads fit the 30s `fitsAnotherPoll` budgets for them: a hung call
+  // Bounded, so a cycle's two reads fit the 30s `fitsAnotherPoll` budgets for them: a hung call
   // would otherwise carry the last cycle past Monitor's cap. A timeout is a failed read, retried.
   const out = execFileSync('gh', ['api', path, ...(jq ? ['--jq', jq] : [])], {
     encoding: 'utf8',

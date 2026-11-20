@@ -58,12 +58,22 @@ const repoArg = args.includes('--repo')
   ? args[args.indexOf('--repo') + 1]
   : null;
 
+// An `--action` value the gate does not know (a typo, or `--action --repo x/y` where the value was
+// dropped) must not read as report-only, which exits 0: refuse it. A bare trailing `--action`
+// still reports state.
+if (action && !['merge', 'rerequest'].includes(action)) {
+  console.log(
+    `BLOCKED by pr-review:\n  - unknown --action "${action}": use merge or rerequest.`,
+  );
+  process.exit(1);
+}
+
 // OWNER RULING 2026-11-08: Copilot is cut. A request for a Copilot review is refused on every PR,
 // before anything is read from GitHub: no PR state can make it allowed.
 if (action === 'rerequest') {
   console.log(
     `BLOCKED by pr-review:\n  - Copilot is cut (owner ruling 2026-11-08): a Copilot review is never requested on any PR${pr ? `, including #${pr}` : ''}. ` +
-      'A risky code PR (DB, migrations, auth, payments, API routes, security, destructive) takes `/code-review medium` ' +
+      'What a PR takes instead: a risky code PR (DB, migrations, auth, payments, API routes, security, destructive) takes `/code-review medium` ' +
       'plus the risk checklist pass, recorded under `## Claude review` with `## Copilot off` in the PR body; ' +
       'other code takes a Claude review; doc, test, script and copy PRs take none. Fix what you find and merge on green CI.',
   );

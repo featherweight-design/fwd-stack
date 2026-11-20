@@ -30,3 +30,9 @@ test('a review request is refused even with no PR number', () => {
   assert.equal(r.status, 1);
   assert.match(r.stdout, /Copilot is cut/);
 });
+
+test('an unknown --action is refused, not read as report-only', () => {
+  const r = run('42', '--action', '--repo', 'o/r');
+  assert.equal(r.status, 1);
+  assert.match(r.stdout, /unknown --action/);
+});
