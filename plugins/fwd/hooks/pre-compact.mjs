@@ -25,7 +25,9 @@ export const KEEP = [
   'The exact next step, as a command or action, and anything a fresh reader would get wrong.',
 ];
 
-const tail = (path, len = 4 * 1024 * 1024) => {
+// Wide enough for hours of a lane's work; a watcher launched further back is past background-waits'
+// six-hour horizon on most runs. A partial first line is skipped by pendingWakes.
+const tail = (path, len = 16 * 1024 * 1024) => {
   const size = statSync(path).size;
   const n = Math.min(size, len);
   const fd = openSync(path, 'r');
@@ -39,7 +41,12 @@ const tail = (path, len = 4 * 1024 * 1024) => {
 };
 
 /** The guard sentinel autonomous-guard.mjs writes for this session, or null. */
-export function guardState(sessionId, env = process.env, home = homedir()) {
+export function guardState(
+  sessionId,
+  env = process.env,
+  home = homedir(),
+  now = Date.now(),
+) {
   if (!sessionId) return null;
   const dir = join(
     env.CLAUDE_CONFIG_DIR || join(home, '.claude'),
@@ -52,7 +59,11 @@ export function guardState(sessionId, env = process.env, home = homedir()) {
         'utf8',
       ),
     );
-    return state?.armed ? state : null;
+    // The guard releases a run on its own once it expires or spends its cap; report it the same way.
+    if (!state?.armed) return null;
+    if (!(Number(state.expiresAt) > now)) return null;
+    if (Number(state.count ?? 0) >= Number(state.max)) return null;
+    return state;
   } catch {
     return null;
   }
@@ -71,11 +82,11 @@ export function instructions({
       ? `The user is AWAY until ${iso(away)}: never stop, or ask to stop, for context.`
       : 'The away window is closed: the user is present.',
     guard
-      ? `The autonomous-run guard is ARMED until ${iso(guard.expiresAt)} (${guard.count ?? 0}/${guard.max} continuations): "${String(guard.reason).slice(0, 400)}"`
+      ? `The autonomous-run guard is ARMED until ${iso(guard.expiresAt)} (${guard.count ?? 0}/${guard.max} continuations): "${String(guard.reason).replace(/\s+/g, ' ').trim().slice(0, 400)}"`
       : 'The autonomous-run guard is not armed for this session.',
     tasks.length
       ? `Background commands still due to wake this session: ${tasks.join(', ')}. Keep what each waits on.`
-      : 'No background command is recorded as still running.',
+      : 'No background command found still running in the recent transcript; keep any watcher the conversation names.',
   ];
   const text = [
     'Compaction instructions (fwd PreCompact hook). This session keeps working after the summary, so keep, verbatim where it is a rule, a path or an id:',

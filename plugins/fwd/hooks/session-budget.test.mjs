@@ -155,6 +155,11 @@ test('while the user is away every message says never stop for context', () => {
     assert.match(m, /USER AWAY/);
     assert.match(m, /never stop, or ask to stop, for context/);
   }
+  assert.match(
+    budgetMessage(700_000, L, true),
+    /PAST THE COMPACT WINDOW — USER AWAY/,
+    'away does not hide a session past the window',
+  );
   assert.equal(
     budgetMessage(149_999, L, true),
     null,

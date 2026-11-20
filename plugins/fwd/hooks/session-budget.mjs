@@ -60,15 +60,11 @@ export function budgetMessage(context, { warn, critical }, away = false) {
   const stay = away
     ? ' The user is away: never stop, or ask to stop, for context, even when the next PR looks too big to fit.'
     : '';
-  const head = away
-    ? '[SESSION BUDGET — USER AWAY]'
-    : context >= critical
-      ? '[SESSION BUDGET — PAST THE COMPACT WINDOW]'
-      : '[SESSION BUDGET WARNING]';
-  const where =
-    context >= critical
-      ? `It is past the ${k(critical)} compact window, so compaction is due; if it does not come, this machine's \`autoCompactWindow\` is unset or higher (recommended: "autoCompactWindow": ${critical} in ~/.claude/settings.json).`
-      : `The harness compacts it at its configured window, ~${k(critical)} on this kit's setup.`;
+  const past = context >= critical;
+  const head = `[SESSION BUDGET${past ? ' — PAST THE COMPACT WINDOW' : ' WARNING'}${away ? ' — USER AWAY' : ''}]`;
+  const where = past
+    ? `It is past the ${k(critical)} compact window, so compaction is due; if it does not come, this machine's \`autoCompactWindow\` is unset or higher (recommended: "autoCompactWindow": ${critical} in ~/.claude/settings.json).`
+    : `The harness compacts it at its configured window, ~${k(critical)} on this kit's setup.`;
   return `${head} This session's context is ~${k(context)} tokens, and every turn re-reads all of it. ${where}${stay} ${lean} ${rotate}`;
 }
 

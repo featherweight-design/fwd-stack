@@ -595,15 +595,21 @@ async function photograph() {
     const sheet = path.join(outDir, 'sheet.png');
     await sheetPage.screenshot({ path: sheet, fullPage: true });
     // A full-size sheet costs an agent that Reads it far more than it shows. The preview is the
-    // same page zoomed to PREVIEW_EDGE wide, as a JPEG: the file an agent reads.
+    // same page at the same layout, rendered at a device scale that brings its width down to
+    // PREVIEW_EDGE pixels, as a JPEG: the file an agent reads.
     const preview = path.join(outDir, 'sheet-preview.jpg');
     const width = await sheetPage.evaluate(
       () => document.documentElement.scrollWidth,
     );
-    await sheetPage.evaluate((z) => {
-      document.documentElement.style.zoom = String(z);
-    }, previewZoom(width));
-    await sheetPage.screenshot({
+    const previewPage = await (
+      await browser.newContext({
+        viewport: { width: 1800, height: 1200 },
+        deviceScaleFactor: previewZoom(width),
+      })
+    ).newPage();
+    await previewPage.setContent(sheetHtml(inventory.feature, withData, base));
+    await previewPage.waitForTimeout(600);
+    await previewPage.screenshot({
       path: preview,
       fullPage: true,
       type: 'jpeg',

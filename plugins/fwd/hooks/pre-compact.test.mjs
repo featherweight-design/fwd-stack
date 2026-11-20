@@ -32,13 +32,13 @@ test('facts: away, guard and pending watchers are carried; their absence is said
   const present = instructions({ now: 0 });
   assert.match(present, /away window is closed/);
   assert.match(present, /guard is not armed/);
-  assert.match(present, /No background command/);
+  assert.match(present, /No background command found/);
   const away = instructions({
     now: 0,
     away: Date.UTC(2030, 0, 1),
     guard: {
       armed: true,
-      reason: 'finish the epic',
+      reason: 'finish\n\n  the epic',
       count: 3,
       max: 200,
       expiresAt: Date.UTC(2030, 0, 1),
@@ -50,16 +50,34 @@ test('facts: away, guard and pending watchers are carried; their absence is said
   assert.match(away, /b1x, b2y/);
 });
 
-test('guardState reads only an armed sentinel for this session', () => {
+test('guardState reads only a live armed sentinel for this session', () => {
   const config = mkdtempSync(join(tmpdir(), 'precompact-'));
   const env = { CLAUDE_CONFIG_DIR: config };
   mkdirSync(join(config, 'autonomous'));
   writeFileSync(
     join(config, 'autonomous', 's1.json'),
-    JSON.stringify({ armed: true, reason: 'r', max: 5, expiresAt: 1 }),
+    JSON.stringify({
+      armed: true,
+      reason: 'r',
+      count: 0,
+      max: 5,
+      expiresAt: 10,
+    }),
   );
   writeFileSync(join(config, 'autonomous', 's2.json'), '{"armed":false}');
-  assert.equal(guardState('s1', env).reason, 'r');
+  writeFileSync(
+    join(config, 'autonomous', 's3.json'),
+    JSON.stringify({
+      armed: true,
+      reason: 'r',
+      count: 5,
+      max: 5,
+      expiresAt: 10,
+    }),
+  );
+  assert.equal(guardState('s1', env, undefined, 5).reason, 'r');
+  assert.equal(guardState('s1', env, undefined, 10), null, 'expired');
+  assert.equal(guardState('s3', env, undefined, 5), null, 'cap spent');
   assert.equal(guardState('s2', env), null);
   assert.equal(guardState('nope', env), null);
   assert.equal(guardState(undefined, env), null);

@@ -99,7 +99,7 @@ fold) is the `ui-probe` skill's job: a probe per behavioural claim, shown to fai
 reverted. The sheet proves presence on every route; the probes prove the surface works.
 
 **The kit's contact sheet** walks one inventory (§ The inventory) at every width the project
-names and writes `sheet.png` plus one PNG per cell, and `sheet-preview.jpg`, the sheet zoomed to
+names and writes `sheet.png` plus one PNG per cell, and `sheet-preview.jpg`, the same sheet rendered
 1200px wide:
 
 ```bash
