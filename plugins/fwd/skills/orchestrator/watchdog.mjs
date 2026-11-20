@@ -5,12 +5,12 @@
 //   - an open PR has been quiet for `--stall` minutes (default 30) and has not been reported since
 //     it went quiet (a state file in the plugin's data folder remembers, so a re-arm does not exit
 //     on the same PR again), or
-//   - the hourly heartbeat, so idle lanes with queued work get checked even when nothing stalls.
+//   - the heartbeat (every 2.5 hours by default), so idle lanes with queued work get checked even when nothing stalls.
 // On every exit it prints the stalled PRs, a roadmap stale-check reminder and the lane-context
 // table. Re-arm it after acting.
 // A foreground wait loop blocks the user's messages behind it; never run this in the foreground.
 //
-//   node watchdog.mjs [--repo owner/name] [--stall 30] [--heartbeat 60] [--interval 120]
+//   node watchdog.mjs [--repo owner/name] [--stall 30] [--heartbeat 150] [--interval 120]
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,7 +26,7 @@ const flag = (name, dflt) => {
 };
 const repo = flag('repo');
 const stall = Number(flag('stall', 30));
-const heartbeat = Number(flag('heartbeat', 60));
+const heartbeat = Number(flag('heartbeat', 150));
 const interval = Number(flag('interval', 120)) * 1000;
 
 // gh lists 30 by default, drafts included. Ask for far more, and treat a full page as a partial

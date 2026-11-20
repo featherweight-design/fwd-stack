@@ -133,6 +133,7 @@ Opus at once.
 - **Sonnet:** building to a READINESS-green handoff, mechanical refactors, copy, tests, docs,
   scripts, dependency bumps, and bounded read-and-locate subagents. A pure grep-and-report
   subagent can run on Haiku.
+- Use a subagent only for a large read, on Sonnet (Haiku for grep-and-report); do small reviews, prechecks and lookups inline, since each subagent starts at about 50K tokens.
 - **Escalate, do not pre-empt.** When Sonnet stalls on a piece, the lane reports it and the piece
   moves to a new Opus session with the handoff. Never start on Opus "just in case".
 
