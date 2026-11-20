@@ -13,6 +13,7 @@ import {
   checkTheme,
   redactConsole,
   runStep,
+  previewZoom,
 } from './contact-sheet.mjs';
 import { addSecret } from './inventory.mjs';
 
@@ -556,4 +557,11 @@ test('expectMeta: passes when a meta tag matches, fails naming only a count, and
       /Target closed/,
     ),
   );
+});
+
+test('previewZoom brings a wide sheet down to 1200px and never enlarges a narrow one', () => {
+  assert.equal(previewZoom(1800), 1200 / 1800);
+  assert.equal(previewZoom(1200), 1);
+  assert.equal(previewZoom(600), 1);
+  assert.equal(previewZoom(2000, 1000), 0.5);
 });

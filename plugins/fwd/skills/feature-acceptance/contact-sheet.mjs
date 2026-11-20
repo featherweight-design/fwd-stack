@@ -49,6 +49,13 @@ import {
 
 const T = 15_000;
 
+/** The long edge, in pixels, of the sheet preview an agent reads. */
+export const PREVIEW_EDGE = 1200;
+
+/** The zoom that brings a sheet `width` pixels wide down to the preview's edge; never enlarges. */
+export const previewZoom = (width, edge = PREVIEW_EDGE) =>
+  width > edge ? edge / width : 1;
+
 /**
  * One step's verbs, in VERBS order. Page content is reached inside `scope`, never the shell.
  * Exported for its tests, which drive it with a stand-in page.
@@ -587,7 +594,22 @@ async function photograph() {
     await sheetPage.waitForTimeout(600);
     const sheet = path.join(outDir, 'sheet.png');
     await sheetPage.screenshot({ path: sheet, fullPage: true });
-    say(`\nsheet: ${sheet}`);
+    // A full-size sheet costs an agent that Reads it far more than it shows. The preview is the
+    // same page zoomed to PREVIEW_EDGE wide, as a JPEG: the file an agent reads.
+    const preview = path.join(outDir, 'sheet-preview.jpg');
+    const width = await sheetPage.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
+    await sheetPage.evaluate((z) => {
+      document.documentElement.style.zoom = String(z);
+    }, previewZoom(width));
+    await sheetPage.screenshot({
+      path: preview,
+      fullPage: true,
+      type: 'jpeg',
+      quality: 70,
+    });
+    say(`\nsheet: ${sheet}\npreview (for agents to read): ${preview}`);
   } finally {
     await browser.close();
   }

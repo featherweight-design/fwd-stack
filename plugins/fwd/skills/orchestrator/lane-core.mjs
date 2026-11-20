@@ -1,8 +1,7 @@
 // What lane-context.mjs reads out of a session transcript, kept pure so it is testable.
 //
 // A session's context is what its NEXT turn will re-read: the last assistant turn's input plus
-// cache reads plus cache writes. Per-turn context size, not session length, drives cost, so this
-// is the number a lane is rotated on.
+// cache reads plus cache writes. Per-turn context size, not session length, drives cost.
 
 import { resolve } from 'node:path';
 
@@ -58,17 +57,24 @@ export function laneName(tailSummary, headSummary = {}) {
 }
 
 /**
- * What to do about a lane. Busy lanes over `rotateAt` rotate at their next PR boundary. While the
- * user is away no lane stops for context: a rotation nobody is there to restart leaves work
- * sitting. A lane over `rotateAt` keeps working with lean turns and writes a handoff at each PR
- * boundary, and the rotation waits for the user's return.
+ * What to do about a lane. The harness compacts every session at its configured window
+ * (`autoCompactWindow`, 300k recommended; `sessionBudget.compactWindow` tells the kit what it is),
+ * so size alone is no reason to rotate: rotation is for a lane that has compacted several times and
+ * drifts, judged by its work, day or night. A lane past the window means compaction is due, or
+ * this machine compacts later than the kit expects. `rotateAt` is an optional hard ceiling, off
+ * by default; while the user is away it never stops a lane, and the rotation waits for their
+ * return.
  */
-export function verdict(context, { rotateAt = 450_000, away = false } = {}) {
+export function verdict(
+  context,
+  { rotateAt = null, compactWindow = 300_000, away = false } = {},
+) {
   if (context === null) return 'no turns yet';
-  if (away) {
-    return context >= rotateAt
+  if (rotateAt !== null && context >= rotateAt)
+    return away
       ? 'over rotateAt: keep working, turns lean, handoff at each PR boundary; rotate on return'
-      : 'ok';
-  }
-  return context >= rotateAt ? 'rotate at its next PR boundary' : 'ok';
+      : 'over rotateAt: rotate at its next PR boundary';
+  if (context >= compactWindow)
+    return 'past the compact window: compaction due; if it stays here, check autoCompactWindow';
+  return 'ok';
 }

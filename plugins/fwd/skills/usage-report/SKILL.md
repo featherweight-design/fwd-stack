@@ -30,8 +30,9 @@ It reads `<config>/projects/**/*.jsonl`, costs no model tokens, and prints markd
   its context, because every turn re-reads all of it. A median context of 300k or more across
   hundreds of turns is the usual cause of running out.
 - **What to change** (report it to the user, do not change it yourself):
-  - Lanes past `rotateAt` rotate at their next PR boundary while the user is present
-    (`orchestrator` §7).
-  - Fresh sessions per PR or two, not one per lane per day.
-  - Routine lane work on Sonnet where quality holds (`maxOpusLanes`).
+  - The machine compacts at 300k (`"autoCompactWindow": 300000` in `~/.claude/settings.json`); a
+    median near 1M means it is unset (`run-project` §6).
+  - A session that has compacted several times and drifts rotates (`orchestrator` §7).
+  - Lanes and subagents on Sonnet, Opus only with a reason in the brief (`run-project` §5,
+    `maxOpusLanes`).
   - Fewer parallel lanes if the allowance is the constraint (`maxLanes`).

@@ -61,18 +61,23 @@ test("a subagent's turns in the same transcript do not count", () => {
   assert.equal(sessionSummary(jsonl).context, 50_000);
 });
 
-test('busy lanes rotate past 450k; while the user is away they never stop for context', () => {
-  assert.equal(verdict(449_999), 'ok');
-  assert.match(verdict(450_000), /rotate/);
-  assert.equal(verdict(449_999, { away: true }), 'ok');
-  assert.match(verdict(500_000, { away: true }), /turns lean/);
-  assert.match(
-    verdict(900_000, { away: true }),
-    /keep working.*rotate on return/,
-  );
-  assert.doesNotMatch(verdict(900_000, { away: true }), /stop/);
+test('size alone never rotates a lane; past the compact window says compaction is due', () => {
+  assert.equal(verdict(299_999), 'ok');
+  assert.match(verdict(300_000), /compact window.*autoCompactWindow/);
+  assert.doesNotMatch(verdict(900_000), /rotate/);
+  assert.equal(verdict(399_999, { compactWindow: 400_000 }), 'ok');
   assert.equal(verdict(null), 'no turns yet');
-  assert.match(verdict(200_000, { rotateAt: 150_000 }), /rotate/);
+});
+
+test('an opt-in rotateAt rotates while present; while away it never stops a lane', () => {
+  assert.match(
+    verdict(200_000, { rotateAt: 150_000 }),
+    /rotate at its next PR/,
+  );
+  assert.equal(verdict(149_999, { rotateAt: 150_000 }), 'ok');
+  const away = verdict(900_000, { rotateAt: 150_000, away: true });
+  assert.match(away, /keep working.*rotate on return/);
+  assert.doesNotMatch(away, /stop/);
 });
 
 test('a relative or trailing-slash project path names the same transcript folder', () => {

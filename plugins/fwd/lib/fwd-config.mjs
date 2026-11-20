@@ -8,7 +8,9 @@
 //       "protected": { "br-…": "production" },          // read-only Neon branches/endpoints
 //       "readOnlyCompute": { "br-…": "ep-…" }           // run_sql there must use this replica
 //     },
-//     "sessionBudget": { "warnTokens": 150000 }            // context size; critical is orchestrator.rotateAt
+//     "sessionBudget": { "warnTokens": 150000,             // context size the first warning comes at
+//                        "compactWindow": 300000 },        // the machine's autoCompactWindow
+//     "orchestrator": { "maxLanes": 3, "maxOpusLanes": 1 } // rotateAt: optional ceiling, off by default
 //   }
 //
 // Objects merge key by key, and the project wins on a conflict. Protected Neon branches are a

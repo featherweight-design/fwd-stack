@@ -125,6 +125,10 @@ Sentry dashboards, PostHog insights and dashboards, and Better Stack status page
 
 - [ ] **Every plan that adds a cron, a scheduled job, a model call or a piece of infrastructure carries a "Running cost" line:** what it costs per run or per month, at what cadence, and what it keeps awake. A model call states its model, prompt size and calls per reader or per run. _Why:_ big hosting costs are usually a small default nobody priced (a 5-minute cron, a 1 CU branch, a twin build).
 
+## Claude Code on the machine
+
+- [ ] **`"autoCompactWindow": 300000`** and **`"env": { "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet" }`** in `~/.claude/settings.json` (owner). _Why:_ every turn re-reads the whole context, and without the window a session grows to near the model's full context before it compacts. Details in `run-project` §6.
+
 ## The weekly cost check
 
 - [ ] **Read the bills weekly**, or run a scheduled read-only job that does. It compares this week with last week and goes red when a threshold is passed:

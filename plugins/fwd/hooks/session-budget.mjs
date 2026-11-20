@@ -6,13 +6,14 @@
 // Two events run it:
 //   UserPromptSubmit: on every prompt over the warning line. The text goes into the model's context,
 //     not onto the user's screen, so it tells the model what to suggest.
-//   PostToolUse: once per band crossed (the warning line, the critical line, then every 100k
+//   PostToolUse: once per band crossed (the warning line, the compact window, then every 100k
 //     above it), so a session running unattended, which sees no user prompt for hours, is told too.
 //
-// Lines: `sessionBudget.warnTokens` (default 150k) and `orchestrator.rotateAt` (default 450k),
-// the same line the orchestrator rotates lanes at. While the user is away (lib/away.mjs) both lines
-// tell a session to keep working: the rotation line does not apply, nobody is there to restart it,
-// and the harness compacts context on its own.
+// Lines: `sessionBudget.warnTokens` (default 150k) and `sessionBudget.compactWindow` (default
+// 300k), the window the harness compacts at when the machine sets the recommended
+// `"autoCompactWindow": 300000`. Neither line asks for a rotation: a session past the window has
+// compaction due, or a machine that compacts later than the kit expects. While the user is away
+// (lib/away.mjs) the message adds that nothing stops for context.
 import {
   closeSync,
   mkdirSync,
@@ -35,13 +36,13 @@ import { sessionSummary } from '../skills/orchestrator/lane-core.mjs';
 const STEP = 100_000;
 
 export function lines(config = {}) {
-  const critical = config.orchestrator?.rotateAt ?? 450_000;
-  // A rotation line set below the warning line still warns at it: the warning never comes later.
+  const critical = config.sessionBudget?.compactWindow ?? 300_000;
+  // A compact window set below the warning line still warns at it: the warning never comes later.
   const warn = Math.min(config.sessionBudget?.warnTokens ?? 150_000, critical);
   return { warn, critical };
 }
 
-// 0 below the warning line, 1 between the lines, then 2, 3, … for each 100k past the critical line.
+// 0 below the warning line, 1 between the lines, then 2, 3, … for each 100k past the window.
 export function band(context, { warn, critical }) {
   if (context === null || context < warn) return 0;
   if (context < critical) return 1;
@@ -52,11 +53,23 @@ const k = (n) => `${Math.round(n / 1000)}k`;
 
 export function budgetMessage(context, { warn, critical }, away = false) {
   if (context === null || context < warn) return null;
-  if (away)
-    return `[SESSION BUDGET — USER AWAY] This session's context is ~${k(context)} tokens. The user is away, so keep working: the ${k(critical)} rotation line does not apply while they are away, and the harness compacts context automatically. Never stop, or ask to stop, for context, even when the next PR looks too big to fit. Keep turns lean and write your handoff at each PR boundary.`;
-  if (context >= critical)
-    return `[SESSION BUDGET CRITICAL] This session's context is ~${k(context)} tokens, past the ${k(critical)} rotation line, and every turn re-reads all of it. At your next PR boundary: as a lane, write your handoff and ask the orchestrator to rotate you; otherwise suggest the user run /compact or start a fresh session. Until then, keep reads tight.`;
-  return `[SESSION BUDGET WARNING] This session's context is ~${k(context)} tokens (rotation at ${k(critical)}), and every turn re-reads all of it. Keep reads tight; plan to hand off or compact at the next natural boundary.`;
+  const lean =
+    'Keep turns lean: read files in parts, hand broad searches to a subagent, and write your handoff at each PR boundary.';
+  const rotate =
+    'Rotate only if this session has compacted several times and drifts (forgets the brief, repeats work).';
+  const stay = away
+    ? ' The user is away: never stop, or ask to stop, for context, even when the next PR looks too big to fit.'
+    : '';
+  const head = away
+    ? '[SESSION BUDGET — USER AWAY]'
+    : context >= critical
+      ? '[SESSION BUDGET — PAST THE COMPACT WINDOW]'
+      : '[SESSION BUDGET WARNING]';
+  const where =
+    context >= critical
+      ? `It is past the ${k(critical)} compact window, so compaction is due; if it does not come, this machine's \`autoCompactWindow\` is unset or higher (recommended: "autoCompactWindow": ${critical} in ~/.claude/settings.json).`
+      : `The harness compacts it at its configured window, ~${k(critical)} on this kit's setup.`;
+  return `${head} This session's context is ~${k(context)} tokens, and every turn re-reads all of it. ${where}${stay} ${lean} ${rotate}`;
 }
 
 // The last usage record sits near the end; a long transcript runs to tens of megabytes, so read a

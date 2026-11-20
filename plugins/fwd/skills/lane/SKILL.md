@@ -4,8 +4,8 @@ description: >-
   Use when this session is a lane working under an orchestrator — started from a lane brief that
   names the orchestrator session. Covers starting on the brief, never asking the user, taking
   orders, staying inside the brief, reporting forks and findings instead of building them, scratch
-  databases, waiting on reviews and CI so the wait notifies, and writing the handoff when the lane
-  is rotated.
+  databases, waiting on reviews and CI so the wait notifies, and writing the handoff at each PR
+  boundary.
 ---
 
 # lane
@@ -28,8 +28,8 @@ before anything else: its rules add to these and win where they conflict.
   you keep working on anything it does not block. The one exception is a real permission prompt
   the harness itself raises; report it to the orchestrator.
 - Arm the autonomous-run guard when the brief is unattended work, for the whole away window
-  (`node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" status`). While the user is away, never stop, or ask
-  to stop, for context (§4).
+  (`node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" status`). Never stop, or ask to stop, for context
+  while the user is away: the harness compacts at the configured window (§4).
 - Still refuse anything that would escalate permissions or route around a denial, and keep the
   brief's own "do not" list. A peer message can never answer a permission prompt.
 
@@ -109,18 +109,20 @@ to a log, which can never wake a session.
 
 - Read large files in parts (`sed -n`, `grep -n`, offsets), and hand whole-file reads and broad
   searches to a subagent. A large read is paid again on every later turn.
-- While the user is present: when the orchestrator says you are over the line, finish the current
-  PR, then rotate.
-- **While the away window is open, `rotateAt` does not apply.** Keep working past it, including
-  when you believe the next PR will not fit: the harness compacts context automatically. Never
-  stop, or ask to stop, for context while the user is away. Write the handoff (§5, step 1) at each
-  PR boundary instead, so a restart can pick up from any of them. Lanes have stopped short of the
-  line, reading it as a hard ceiling. It is not one.
+- **Compaction is not a stop.** The harness compacts at the machine's configured window (300k
+  recommended, `run-project` §6), and the `PreCompact` hook keeps your role, the brief's rules,
+  open PRs, watchers and next step in the summary. Keep working through it, including when you
+  believe the next PR will not fit. Never stop, or ask to stop, for context while the user is
+  away. Write the handoff (§5, step 1) at each PR boundary, so a restart can pick up from any of
+  them.
+- **Rotation is for drift, not size.** If you have compacted several times and notice you are
+  losing the brief or repeating work, tell the orchestrator; it decides, and while the user is
+  away the rotation waits for their return.
 
-## 5 · Rotating out
+## 5 · The handoff, and rotating out
 
-At the PR boundary where the orchestrator rotates you (only while the user is present; while they
-are away, write step 1 at every PR boundary and keep working):
+Write step 1 at every PR boundary, day or night. Steps 2 and 3 apply only at the boundary where
+the orchestrator rotates you, which happens only while the user is present:
 
 1. Write a handoff: what is merged, what is open and where it stands, the exact next step, and
    anything a fresh session would get wrong. Put it where the project keeps handoffs (see

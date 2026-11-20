@@ -116,7 +116,10 @@ eval "$SWEEP"
 Each subagent gets:
 
 1. The triage brief from `triage-brief-template.md` in this skill's folder
-2. Screenshot paths (absolute) for its bucket
+2. Screenshot paths (absolute) for its bucket, downscaled before the subagent reads them: one
+   `sips -Z 1200 -s format jpeg -s formatOptions 70 <file>.png --out <scratch>/<file>.jpg` per
+   capture on macOS (or the sweep engine's own scale and JPEG options). Findings still cite the
+   original `.png` path.
 3. Heuristic JSON path alongside each screenshot (`.png` → `.json`)
 
 **The subagent must NOT file anything to GitHub.** The template repeats this. The orchestrator (this skill) is the only thing that touches `gh`.
