@@ -16,7 +16,14 @@ if (isMain(import.meta.url)) {
   for (let i = 0; i < argv.length; i++) {
     const m = /^--(session|minutes)(?:=(.*))?$/.exec(argv[i]);
     if (!m) words.push(argv[i]);
-    else flags[m[1]] = m[2] ?? argv[++i];
+    else {
+      const value = m[2] ?? argv[++i];
+      if (value === undefined || value.startsWith('--')) {
+        console.error(`allow-once: --${m[1]} needs a value`);
+        process.exit(2);
+      }
+      flags[m[1]] = value;
+    }
   }
   try {
     if (words.length !== 1)

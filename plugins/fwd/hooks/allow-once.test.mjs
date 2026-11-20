@@ -183,6 +183,11 @@ test('the write guard denies Write, Edit and NotebookEdit into the folder', () =
   assert.equal(run('Write', { file_path: '/tmp/allow-once/a.json' }), 'deny');
   assert.equal(run('Write', { file_path: '/tmp/notes.txt' }), null);
   assert.equal(writeTamperReason({ tool_input: {} }), null);
+  // maintaining the feature's own source stays possible
+  assert.equal(
+    run('Edit', { file_path: '/repo/plugins/fwd/hooks/allow-once.mjs' }),
+    null,
+  );
 });
 
 test('a symlink into the folder is seen by the write guard', () => {

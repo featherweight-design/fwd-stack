@@ -64,11 +64,13 @@ export function arm(
     expires: now + mins * 60_000,
     used: false,
   };
-  writeFileSync(
-    join(dir, `${randomBytes(8).toString('hex')}.json`),
-    JSON.stringify(record),
-    { mode: 0o600 },
-  );
+  // Written whole under a name consume() ignores, then renamed into place, so a reader never
+  // sees a partial record.
+  const id = randomBytes(8).toString('hex');
+  writeFileSync(join(dir, `${id}.tmp`), JSON.stringify(record), {
+    mode: 0o600,
+  });
+  renameSync(join(dir, `${id}.tmp`), join(dir, `${id}.json`));
   return record;
 }
 
@@ -86,10 +88,7 @@ export function consume(command, session, env = process.env, now = Date.now()) {
   }
   for (const name of names) {
     const file = join(dir, name);
-    if (!name.endsWith('.json')) {
-      if (name.includes('.claim-')) rmSync(file, { force: true });
-      continue;
-    }
+    if (!name.endsWith('.json')) continue;
     let rec;
     try {
       rec = JSON.parse(readFileSync(file, 'utf8'));
@@ -159,7 +158,9 @@ export function writeTamperReason(input, env = process.env, home = homedir()) {
   const targets = [abs, realish(abs)];
   const dirs = dataDirs(env, home).flatMap((d) => [d, realish(d)]);
   const inside = targets.some(
-    (t) => TAMPER.test(t) || dirs.some((d) => t === d || t.startsWith(d + sep)),
+    (t) =>
+      /[\\/]allow-once([\\/]|$)/.test(t) ||
+      dirs.some((d) => t === d || t.startsWith(d + sep)),
   );
   return inside
     ? 'allow-once records are written by the user only; an agent may not write to them.'
