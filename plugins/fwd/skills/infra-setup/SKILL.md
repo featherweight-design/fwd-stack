@@ -60,11 +60,11 @@ Use it two ways:
 
 ## Staging footprint
 
-Staging exists to be checked before a release, not to run all day. Neon bills compute for every minute a database is awake, and a staging database that a cron wakes every few minutes never sleeps. In October, The 99's staging compute was about the same as its production compute, for an environment nobody used most of the day.
+Staging exists to be checked before a release, not to run all day. Neon bills compute for every minute a database is awake, and a staging database that a cron wakes every few minutes never sleeps. In one case, an app's staging compute was about the same as its production compute, for an environment nobody used most of the day.
 
 - [ ] **Staging databases and crons wake only on demand or once a day.** Never on a sub-hourly schedule. On demand means a person, a deploy or a test run asks for it.
-      _Exception:_ an app that promotes to production only after a green staging end-to-end run (Concert Crawl does) wakes staging for each promotion. That is on demand too.
-- [ ] **Staging crons do nothing by default.** Each cron handler checks the environment and returns early on staging unless an explicit override is set. The 99 uses `STAGING_CRONS='run'`. Set the override only while you are testing a cron, then unset it.
+      _Exception:_ an app that promotes to production only after a green staging end-to-end run (one app does) wakes staging for each promotion. That is on demand too.
+- [ ] **Staging crons do nothing by default.** Each cron handler checks the environment and returns early on staging unless an explicit override is set. For example, one app uses `STAGING_CRONS='run'`. Set the override only while you are testing a cron, then unset it.
       _Why:_ a schedule in `vercel.json` applies to every project that deploys the file, staging included, so the default has to be off in the code.
 - [ ] **Staging Vercel projects build on a fixed Standard build machine, with on-demand concurrent builds off.**
       _Why:_ a larger machine or extra concurrent builds buy speed nobody waits for on staging, and both are billed.

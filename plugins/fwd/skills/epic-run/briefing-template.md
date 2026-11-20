@@ -3,7 +3,7 @@
 > Template for `docs/superpowers/plans/YYYY-MM-DD-<epic>-briefing.md`. Fill every
 > section; delete none. The briefing carries the feature-specific facts the
 > epic-run skill needs — run mechanics live in the skill, not here. Keep under
-> ~600 lines (Copilot review limit).
+> ~600 lines (a review reads a file whole only up to about this size).
 
 ## Source of truth (read in this order)
 

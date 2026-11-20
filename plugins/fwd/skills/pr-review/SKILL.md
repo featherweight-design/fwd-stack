@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: Use when running a GitHub Copilot review cycle on a pull request — requesting the review, waiting for it, deciding whether a round counts, triaging findings, pushing back, and deciding when the merge bar is met. Also governs PR structure — size, splitting, and the ban on stacked PRs. Single source of truth across every repository.
+description: Use when reviewing a pull request before it merges — which review a PR gets, triaging findings, pushing back, and deciding when the merge bar is met. Also governs PR structure — size, splitting, and the ban on stacked PRs. Single source of truth across every repository.
 ---
 
 # pr-review
@@ -9,21 +9,21 @@ description: Use when running a GitHub Copilot review cycle on a pull request �
 
 Snippets, procedures and evidence live in [reference.md](reference.md); each pointer below says what is there. This skill governs whether the code was read. Whether the feature is actually there is `feature-acceptance`'s job (a review reads a diff and cannot see a route that never got the component); invoke both. Nothing else restates this policy; other skills point here.
 
-## Owner ruling, 2026-10-30, amended 2026-11-08: Claude reviews, Copilot is off. This overrides §1, §5, §7 and §8 below
+## Owner ruling, 2026-10-30, amended 2026-11-08: Claude reviews; Copilot is never requested
 
-No PR requests a Copilot review, risky ones included. Claude reviews every code PR; risky PRs get a second, targeted pass: the risk checklist, aimed at ten classes Claude's review missed (evidence in reference.md).
+Claude reviews every code PR; risky PRs get a second, targeted pass: the risk checklist, aimed at ten classes Claude's review missed (evidence in reference.md). Never request a Copilot review on any PR.
 
-| PR kind                                                                                                                                    | Review                                                                                                                                                                                          | Merge bar                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| **Risky code**: destructive diff, migrations/schema, DB layer, auth/session/proxy, payments/credits/billing/webhooks, API routes, security | **Claude review, two passes.** `/code-review medium` on the diff, then the risk checklist pass. Fix every valid finding. No Copilot.                                                            | `## Copilot off` + `## Claude review` recording both passes + green CI |
-| **Other code**                                                                                                                             | **Claude review.** Dispatch the `caveman:cavecrew-reviewer` agent on the PR diff with the addendum below, fix what it finds, and record it in the PR body under `## Claude review`. No Copilot. | `## Claude review` + green CI                                          |
-| **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                                                       | Green CI                                                               |
+| PR kind                                                                                                                                    | Review                                                                                                                                                                              | Merge bar                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| **Risky code**: destructive diff, migrations/schema, DB layer, auth/session/proxy, payments/credits/billing/webhooks, API routes, security | **Claude review, two passes.** `/code-review medium` on the diff, then the risk checklist pass. Fix every valid finding.                                                            | `## Copilot off` + `## Claude review` recording both passes + green CI |
+| **Other code**                                                                                                                             | **Claude review.** Dispatch the `caveman:cavecrew-reviewer` agent on the PR diff with the addendum below, fix what it finds, and record it in the PR body under `## Claude review`. | `## Claude review` + green CI                                          |
+| **Doc, design, test, probe, script or copy-only**                                                                                          | None. Read your own diff.                                                                                                                                                           | Green CI                                                               |
 
-- The gate classifies the PR (`copilot scope` line), enforces this table, and refuses any Copilot request on a non-risky PR. On a risky PR, write `## Copilot off` in the body and request nothing.
-- **The `## Copilot off` door** (plugin 0.1.19): a risky PR with that heading meets its bar only when `## Claude review` is a real record that names `/code-review` and holds a `Checklist pass:` line that is itself a record (`Checklist pass: pending`, or the unfilled hint, is not). A Copilot round already on the PR, or a `## Copilot budget stop`, does not stand in for it. The gate prints a `copilot off` line on every PR that declares the heading, says what is missing, and refuses every Copilot request while the heading is there.
-- Destructive diffs take this door too: the two Claude passes are their review, so §8's clean-after-clean and §7's "the merge waits for the user" do not apply; read the diff's deletes and overwrites with the care those rules were written for. Without the heading the gate still accepts one Copilot round on a risky PR; that path exists only for the rollback trigger below.
+- The gate classifies the PR (`copilot scope` line) and enforces this table. On a risky PR, write `## Copilot off` in the body; the heading is literal, the gate reads it.
+- **The `## Copilot off` door** (plugin 0.1.19): a risky PR with that heading meets its bar only when `## Claude review` is a real record that names `/code-review` and holds a `Checklist pass:` line that is itself a record (`Checklist pass: pending`, or the unfilled hint, is not). The gate prints a `copilot off` line on every PR that declares the heading, says what is missing, and refuses every Copilot request while the heading is there.
+- Destructive diffs take this door too: the two Claude passes are their review, so §8's clean-after-clean and §7's "the merge waits for the user" do not apply; read the diff's deletes and overwrites with the care those rules were written for.
 - **`## Risk: not risky`**: risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review. Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
-- **Budget stop.** The `## Copilot budget stop` door is still in the gate; do not use it.
+- **Budget stop.** The gate still carries a legacy budget-stop door; do not use it.
 - **Which Claude reviewer.**
   - **Risky PRs: `/code-review medium`, then the risk checklist pass.** After `/code-review medium` has run and its fixes are pushed, dispatch a general-purpose subagent with `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/risk-checklist-prompt.md` as its prompt. Rules are §10b's precheck rules: not a fork, the branch only, no plans or handoffs, the same subagent grant, verify every finding before acting. It is a separate pass, not an argument to `/code-review`. It reports Lows on comments, names, probes and selectors (its checks 8 and 9): fix those too.
   - **Other code: `caveman:cavecrew-reviewer`**, a read-only subagent returning one line per finding. Add this to its dispatch prompt:
@@ -45,13 +45,13 @@ No PR requests a Copilot review, risky ones included. Claude reviews every code 
   - Use no GitHub-side Claude Action; it bills API usage per run.
 - **`## Claude review` records** the reviewer used (`cavecrew-reviewer` or `/code-review <level>`), the findings by severity, and what was fixed or declined, in one short paragraph. A risky PR records both passes, the checklist on its own line: `Checklist pass: <n> findings (C/H/M/L), <what was fixed or declined>`, or `Checklist pass: no findings.` The gate rejects an empty section or a placeholder (pending, TBD, todo, n/a, a comment), including a clause that ends on one ("the review is still pending") unless it is prose about the code: a subordinate clause (that, which, while, whose, because) after a subject that is not the review.
 - **UI PRs also need `## Design review`**: the `design-review` skill's verify table, written before the PR opens, plus the contact sheet for the routes touched (`feature-acceptance`). A review pass replaces neither. The gate does not check them; the orchestrator does not merge a UI PR without them.
-- **A/B v2 line (risky PRs).** Add to `## Claude review`: `A/B v2: Copilot off, Claude <n> (C/H/M/L), checklist-only real <n> [checks], code-review-only real <n>`. A finding is "real" if you fixed it; the bracketed numbers (1 to 10) are the checks that found it. Older `A/B:` lines stay as history.
+- **A/B v2 line (risky PRs).** Add to `## Claude review`: `A/B v2: Claude <n> (C/H/M/L), checklist-only real <n> [checks], code-review-only real <n>`. A finding is "real" if you fixed it; the bracketed numbers (1 to 10) are the checks that found it. Older `A/B:` lines stay as history.
 - **Escapes are tracked four ways** (measured to 2026-11-30, then re-ruled):
   1. A fix PR that repairs a defect an earlier merged PR introduced names it under `## Escaped from #N`.
   2. Each Friday, list the week's merged PRs with `fix`, `revert` or `hotfix` in the title that touch a file a risky PR changed in the prior 14 days, and label each an escape or not (`escape-sweep.mjs`, usage in reference.md).
   3. Every 5th merged risky PR gets a fresh-session `/code-review high` on its merged diff the next day; a real finding is a latent escape. Kept through December.
   4. A red main after a risky merge, or a new runtime error class on a touched route, is checked against the risky PRs.
-- **Rollback trigger.** Any Critical or High escape from a risky PR, or more than 1 Medium per 15 risky PRs, ends Claude-only review on risky PRs: stop, report to the owner, and give risky PRs one Copilot round again until re-ruled.
+- **Rollback trigger.** Any Critical or High escape from a risky PR, or more than 1 Medium per 15 risky PRs, ends Claude-only review on risky PRs: stop and report to the owner, who re-rules the review path.
 - The rest of this document governs how to read and triage a review: staleness, findings, sweeping a class, `## Settled`, PR structure. Read "round" as a review pass.
 
 ## The gate runs this; you do not have to remember it
@@ -70,11 +70,10 @@ Do not add or tune a rule in this document without new measured evidence; fix de
 
 The goal is not fewer rounds but rounds that each read new code. Judge every rule by whether it removes a ROUND, not whether it makes one cheaper: latency is the cost, so §5's class-sweep rule is the highest-value rule here. Review is best at arithmetic, platform quirks, and tests that measure nothing.
 
-## 1 · Requesting a review
+## 1 · Pushing
 
-Copilot does not auto-review and a push triggers nothing. Under the ruling above it is never requested; the legacy request and verify procedures, the wedged-run restart (`restart-review.mjs`) and the exhausted-Copilot case are in reference.md. The gate judges a request: `--action rerequest`.
+The gate judges a re-review: `--action rerequest`. A push triggers no review by itself; Claude review is run by you, per the ruling above.
 
-- A request's 200 is not proof and an empty `requested_reviewers` proves nothing; verify on the timeline, and give a request two minutes before treating absence as absence.
 - **Confirm the push landed before counting a round.** A chained `git rebase && git push && …` short-circuits silently. Compare `pulls/N` `.head.sha` to `git rev-parse HEAD` (snippet in reference.md); the gate runs it from a checkout of the PR's head branch.
 - Two agents on one repository interfere; expect rebase conflicts rather than chaining past them.
 
@@ -82,8 +81,8 @@ Copilot does not auto-review and a push triggers nothing. Under the ruling above
 
 - **Use the shipped watcher, armed once when the PR opens:** `Monitor({ command: 'node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/pr-watch.mjs" <pr>', description: 'PR <pr> reviews, CI and merge', timeout_ms: 1800000 })`. It prints one line per new review (fresh, STALE or errored), per head's CI, and for the merge, and keeps running across re-requests. When it prints `TIMED OUT`, re-arm it. A hand-rolled `until the count rises; exit` loop wakes on round 1 and then nothing watches.
 - **Under Bash `run_in_background`, add `--exit-on-ci`.** A background command wakes you only when it exits, so without the flag a green or red CI sits unnoticed until the 29-minute timeout. With it the watcher exits on the head's first terminal CI state (0 passed, 1 failed) or when the PR ends.
-- A hand-rolled poll runs every ~240-270s and counts reviews whose `.user.type == "Bot"` (the bare login `"Copilot"` matches nothing). Poll the count above where it started; an emptied `reviewRequests` does not mean a review landed. Your own replies create review records: filter them out.
-- Subagents cannot run this cycle; the wait exceeds their window. The orchestrating session owns request, wait, triage, fix, re-request, merge. A subagent may open the PR and fire the first request, then return.
+- A hand-rolled poll runs every ~240-270s and counts reviews whose `.user.type == "Bot"`. Poll the count above where it started; an emptied `reviewRequests` does not mean a review landed. Your own replies create review records: filter them out.
+- Subagents cannot run a long review cycle; the wait exceeds their window. The orchestrating session owns review, triage, fix, merge. A subagent may open the PR, then return.
 
 ## 3 · Before triaging: is this review stale?
 
@@ -95,7 +94,7 @@ Copilot does not auto-review and a push triggers nothing. Under the ruling above
 
 - The summary verdict (🟢 _Approval recommended_, 🟡 _Changes recommended_, 🔵 _Needs a closer look_) is **never a gate**, in either direction; it restates threads you already fixed. 🔵 "warrants final human review" is an advisory on a broad diff, not a finding.
 - **Suppressed comments are findings.** They live in the review body only (`<details><summary>Suppressed comments (N)</summary>`), never in the inline-comments API; dump full bodies before judging a round (command in reference.md).
-- **Errored reviews count for nothing, in either direction.** "Copilot encountered an error…" is not a round and must not break a clean streak; the gate drops them. Retry immediately, then once at 120s, then hand it to the user. Do not apply §1's escalating backoff to an error.
+- **Errored reviews count for nothing, in either direction.** A reviewer's "encountered an error" is not a round and must not break a clean streak; the gate drops them. Retry immediately, then once at 120s, then hand it to the user. Do not apply §1's escalating backoff to an error.
 - **A finding in a test, probe, fixture or script is Low by definition**, even a vacuous test: it is fixed without earning another round. "Cannot break production" is a rule about rounds, not value: fix these properly, sweep their class, mutation-check them in CI, and do not buy a round with them.
 - A **successful round** has no new inline or suppressed comment, or only Low/Nit ones, whatever the header says. A round that raised nothing inline and did not say `Changes recommended` is successful too (🔵 with two suppressed comments is a reviewer describing the diff). Read the findings and fix what is valid, but do not spend a round proving it. `Changes recommended` always counts, whatever it landed on. **The header can lower a round's weight, never raise it**, and never excuses reading the findings.
 - **Findings on a design handoff are not findings** where a project keeps handoffs under `design/` owned by a separate design process. Fix the CODE the handoff describes and leave the handoff alone; a real contradiction with a shipped ruling goes in the readiness doc's errata table and in a `## Settled` entry naming the file, which makes the gate discount it.
@@ -122,7 +121,7 @@ CI shape this assumes: related tests on PRs and pushes to main, the full suite n
   | Documentation, JSDoc, code comments, PR-body mismatch       | No          |
   | Naming, wording, formatting, plurals                        | No          |
   | Anything in a test, probe, fixture, or `scripts/`           | No          |
-  | Anything Copilot itself calls non-blocking or a nit         | No          |
+  | Anything a reviewer itself calls non-blocking or a nit      | No          |
 
   The row is decided by the files the fix changed, not where the finding was anchored; no `## Settled` entry is needed. On a tooling PR the script is production code, and on a PR whose deliverable is text, findings on the text are the product, not doc-sync (reference.md).
 
@@ -172,7 +171,7 @@ Below the stop a round is never refused for its number; late rounds still return
 
 Briefs, specs, plans, property tables, trackers, READMEs: anything with no runtime. The gate also counts a script edit whose every changed line is a comment, and a `plugin.json` or `package.json` change to the top-level `version` alone, as having none.
 
-- **No Copilot round at all** (owner ruling, 2026-10-30). Read the diff yourself, fix what is wrong, and merge on green CI. The gate sets the bar to zero rounds and refuses the request.
+- **No review at all** (owner ruling, 2026-10-30). Read the diff yourself, fix what is wrong, and merge on green CI. The gate sets the bar to zero rounds and refuses any review request.
 - Read your own doc diff for factual errors in a spec, brief or property table (a missing enum case, an evidence table that does not support its claim, a brief describing a route wrongly); they cost a design round later. "Keep going" means keep FIXING, not keep REQUESTING; it never overrides §7's hard stop or §8's bar.
 - Respond to a finding with an **inventory of the whole class**, not the one instance named. Draw the scope line in the PR body when findings land on staleness the PR did not create.
 - **Bundle doc changes**: multiple in flight belong in one PR.
@@ -182,7 +181,7 @@ Briefs, specs, plans, property tables, trackers, READMEs: anything with no runti
 
 **No stacked PRs.** One PR at a time per feature line, based on `main`: open, review, merge, then cut the next off fresh `main`. Stacking looks like parallelism and is not: nothing merges until the root does, every rebase re-triggers review on every child, and a child's diff contains its parent's work. To drain an existing stack bottom-up, see reference.md.
 
-- **Copilot refuses files past roughly 600-1000 lines**; treat ~600 lines as the per-file ceiling and split a large plan into an index plus per-PR sub-files.
+- **Keep a file under roughly 600 lines**, the per-file ceiling for a review to read it whole; split a large plan into an index plus per-PR sub-files.
 - **Split on FILE COUNT, not line count.** Review surface is per-file. Over ~20 files, split (the gate also warns past ~800 runtime lines, excluding prose and generated files, as the weaker signal), and name the PR boundaries **in the plan**, before implementation starts. The natural cut is the plan's task groups (reference.md). If tasks cannot be cut, say so and get agreement before starting.
 
 ## 10b · The pre-open gate
@@ -215,7 +214,7 @@ Do not open a PR, or request review, on content that has not passed your own fir
 | Thought                                                            | Reality                                                                               |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
 | "The header says changes recommended, so the round isn't clean"    | Only inline comments are findings. §4.                                                |
-| "Copilot re-raised it, I'd better re-explain"                      | It's in `## Settled`. One-line pointer. §6.                                           |
+| "The reviewer re-raised it, I'd better re-explain"                 | It's in `## Settled`. One-line pointer. §6.                                           |
 | "Same finding again — one more fix should do it"                   | Third round on one surface = scope decision. §7.                                      |
 | "The review came back fast, let me triage it"                      | Compare `commit_id` to `head.sha` first. §3.                                          |
 | "Round 12, let me flag it and carry on"                            | 12 is a hard stop on requesting. Merge and report. §7.                                |
