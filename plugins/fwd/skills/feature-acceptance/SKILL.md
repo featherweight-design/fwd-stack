@@ -99,11 +99,18 @@ fold) is the `ui-probe` skill's job: a probe per behavioural claim, shown to fai
 reverted. The sheet proves presence on every route; the probes prove the surface works.
 
 **The kit's contact sheet** walks one inventory (§ The inventory) at every width the project
-names and writes `sheet.png` plus one PNG per cell:
+names and writes `sheet.png` plus one PNG per cell, and `sheet-preview.jpg`, the same sheet rendered
+1200px wide:
 
 ```bash
 node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> [--base <url>]
 ```
+
+**Agents read the preview, never the full images.** An image Read costs context on every later
+turn, and a full sheet is several thousand pixels on a side. Read `sheet-preview.jpg`; to look
+closer at one cell, downscale it first (`sips -Z 1200 -s format jpeg -s formatOptions 70 <cell>.png
+--out <scratch>/<cell>.jpg` on macOS) and read that. `sheet.png` is for the PR body and the user.
+The same holds for any screenshot an agent reads, a probe's or a sweep's.
 
 **Where it points.** The base is `--base`, else `CONTACT_SHEET_BASE`, else
 `featureAcceptance.baseUrl`.

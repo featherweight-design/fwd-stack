@@ -17,17 +17,18 @@ orchestrator itself never builds.
 
 **First, read the project's own rules.** If `.claude/fwd/run-project.md` exists in the project, read
 it before anything else. Its rules add to these and win where they conflict. Settings live under
-`orchestrator` in `.claude/fwd.json`: `maxLanes` (default 3), `rotateAt` (450000),
-`maxOpusLanes` (2) and `priorities` (`boards/priorities.md`).
+`orchestrator` in `.claude/fwd.json`: `maxLanes` (default 3), `maxOpusLanes` (1), `priorities`
+(`boards/priorities.md`) and `rotateAt` (an optional hard ceiling, off by default). The machine
+settings the kit assumes are in §6.
 
 ## 1 · Lane or subagent: decide by the shape of the work
 
 Measured on a long multi-lane run, the two tools fail in opposite ways.
 
 - A **lane** keeps context across PRs, holds its own watchers and stop guard through hours of
-  review and CI, and the user can talk to it. Its costs are context bloat (250–400k tokens within a
-  day, re-read on every turn), manual rotation, stale checkouts, permission prompts a peer cannot
-  answer, and terminal sprawl.
+  review and CI, and the user can talk to it. Its costs are context growth (up to the compact
+  window, re-read on every turn), manual rotation when it drifts, stale checkouts, permission
+  prompts a peer cannot answer, and terminal sprawl.
 - A **subagent** starts fresh and inherits the orchestrator's permissions, and its result comes
   back as a summary, so the orchestrator stays lean. But it dies with the orchestrator, cannot hold
   a watcher or a cross-session wait, and cannot talk to the user.
@@ -35,7 +36,7 @@ Measured on a long multi-lane run, the two tools fail in opposite ways.
 | Work                                                                             | Goes to                                                                                          | Why                                                                |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | A PR, or a line of PRs, that waits on review rounds, CI, deploys or staging runs | **Lane**                                                                                         | Waits last hours and need a watcher the session owns               |
-| Follow-ups on a surface a lane just built, while its context is under `rotateAt` | **The same lane**                                                                                | Its context is the asset                                           |
+| Follow-ups on a surface a lane just built, while the lane has not drifted        | **The same lane**                                                                                | Its context is the asset                                           |
 | Audits, research, pipeline and code maps, measurement                            | **Subagent**                                                                                     | Bounded, read-heavy, and the summary is all the orchestrator needs |
 | Plan and spec builder-checks, readiness audits, the `pr-review` pre-open pass    | **Subagent** (general-purpose, read-only, never a fork)                                          | A cold reader is the point. A fork reads the code as intended      |
 | Drafting a doc, brief or plan that a lane will PR                                | **Subagent** drafts, **lane** PRs                                                                | Keeps PR rounds out of the orchestrator                            |
@@ -56,12 +57,13 @@ Every lane and subagent pays for the project's agent docs at start. Keep `AGENTS
 2. Take the roster of open lanes from the lanes' handoffs and `ListAgents`, not from a
    measurement: `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"` lists recently
    active sessions (the orchestrator included, and none idle for over two hours), so use it only to
-   measure each lane's context. While the user is present, rotate any lane over `rotateAt` before giving it new work.
+   measure each lane's context. Rotate a lane that has compacted several times and drifts before
+   giving it new work (`orchestrator` §7).
 3. For each ranked item the user has approved, decide its shape (§1). Write a brief (§3) for each
    lane item, and dispatch subagents for the rest.
 4. Arm the stall watchdog (`orchestrator` §6). When the user leaves, open the away window and arm the
-   autonomous-run guard for its whole span (`orchestrator` §6). While it is open, no lane stops or
-   rotates for context, past `rotateAt` or not (`orchestrator` §7).
+   autonomous-run guard for its whole span (`orchestrator` §6). While it is open, no lane stops for
+   context (`orchestrator` §7).
    Every wait, by every session, runs in the background (`run_in_background`, the watchdog or
    Monitor) so the notification wakes it; never in the foreground, present or away
    (`orchestrator` §6).
@@ -77,6 +79,7 @@ This is your go: start now. First message to <orchestrator session name>, within
   your context size and your plan. Never ask the user anything; send every question to
   <orchestrator session name> and keep working on what it does not block.
 
+MODEL: <Sonnet | Opus: the one-line reason from run-project §5>
 WHAT AND WHY: <the task, in the user's words where possible>
 EVIDENCE: <file:line, PR, issue, or the measurement that started it>
 OUT OF SCOPE: <what this lane must not touch>
@@ -116,3 +119,36 @@ user.
 - A subagent never owns a review wait or a merge. The orchestrator, or a lane, owns those
   (`pr-review` §2).
 - Treat a subagent's findings as claims to verify, not as rulings.
+- Pick the subagent's model by §5, and name it on the dispatch.
+
+## 5 · Model choice
+
+**Sonnet is the default for lanes and subagents.** Opus is for work that needs it, named on the
+brief's `MODEL:` line with a one-line reason. At most `maxOpusLanes` (default 1) lanes run on
+Opus at once.
+
+- **Opus:** an ambiguous architecture, or a design with no drawn pattern to follow; auth,
+  payments, migrations or other security-sensitive changes; a debugging hunt that has already
+  failed once on Sonnet; the orchestrator itself; a risky PR's `/code-review` (`pr-review`).
+- **Sonnet:** building to a READINESS-green handoff, mechanical refactors, copy, tests, docs,
+  scripts, dependency bumps, and bounded read-and-locate subagents. A pure grep-and-report
+  subagent can run on Haiku.
+- **Escalate, do not pre-empt.** When Sonnet stalls on a piece, the lane reports it and the piece
+  moves to a new Opus session with the handoff. Never start on Opus "just in case".
+
+## 6 · Machine settings
+
+The kit assumes these in the user's `~/.claude/settings.json` on every machine that runs lanes:
+
+- `"autoCompactWindow": 300000`: every session compacts at about 300k tokens. Without it a session
+  compacts near the model's full window, and every turn re-reads up to that much. A window saved
+  per model with `/autocompact` takes precedence over this key, so check `/autocompact` too. If the
+  machine uses another window, set `sessionBudget.compactWindow` in `.claude/fwd.json` to match.
+- `"env": { "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet" }`: subagents run on Sonnet unless a dispatch
+  names another model (§5).
+
+With compaction at 300k, size is no reason to rotate, day or night. A session rotates only when it
+has compacted several times and drifts: it forgets the brief, or repeats work it already did. The
+handoff written at each PR boundary (`lane` §5) is what a fresh session starts from, and the
+`PreCompact` hook steers each compaction to keep the role, the brief's rules, open PRs, watchers,
+the away window and the next step.

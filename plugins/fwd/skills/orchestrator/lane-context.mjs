@@ -5,8 +5,10 @@
 //
 //   node lane-context.mjs [--project <dir>] [--active <minutes>] [--away] [--json]
 //
-// Thresholds come from `orchestrator.rotateAt` in fwd.json (default 450k tokens). The user counts as
-// away with `--away` or while the shared away window is open (lib/away.mjs).
+// The compact window comes from `sessionBudget.compactWindow` in fwd.json (default 300k, matching
+// the recommended `autoCompactWindow`); `orchestrator.rotateAt` is an optional ceiling, off by
+// default. The user counts as away with `--away` or while the shared away window is open
+// (lib/away.mjs).
 import { openSync, readSync, closeSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -31,7 +33,11 @@ const activeMinutes = Number(flag('active') ?? 120);
 const away = args.includes('--away') || awayUntil() !== null;
 
 const config = loadConfig({ ...process.env, CLAUDE_PROJECT_DIR: project });
-const limits = { ...config.orchestrator, away };
+const limits = {
+  rotateAt: config.orchestrator?.rotateAt ?? null,
+  compactWindow: config.sessionBudget?.compactWindow ?? 300_000,
+  away,
+};
 const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
 // A lane in a worktree writes its transcript under the worktree's path, not the project's, so
 // every worktree of the repository is scanned too.

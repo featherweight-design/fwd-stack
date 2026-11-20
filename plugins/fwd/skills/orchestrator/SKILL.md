@@ -189,30 +189,32 @@ nothing was watching.
   `node "${CLAUDE_PLUGIN_ROOT}/lib/away.mjs" set 10`, then `autonomous-guard.mjs arm … --minutes=600
 --max=200`. The default guard (120 minutes, 40 continuations) runs out partway through a night. Tell
   every lane the window is open; each lane arms its own guard for the same span.
-- **When the user returns,** clear the window (`away.mjs clear`), disarm the guard, and list the
-  rotation candidates (below).
+- **When the user returns,** clear the window (`away.mjs clear`), disarm the guard, and list any
+  lane that drifted (below).
 - **Each watchdog wake also runs the roadmap stale check** (§4, benchmark 6).
 
-## 7 · Measure context and rotate lanes
+## 7 · Measure context and rotate lanes that drift
 
-Per-turn context, not session length, drives cost: every turn re-reads the whole context.
+Per-turn context, not session length, drives cost: every turn re-reads the whole context. The
+harness compacts every session at the machine's configured window (300k recommended,
+`run-project` §6), so context no longer grows unchecked and size alone is no reason to rotate.
 
 - Each lane gives its context size in its first message on every task (the brief's first lines).
   Check every lane at each watchdog wake and at each PR boundary:
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/lane-context.mjs"`. It reads the away window
-  itself, as does the session-budget hook, so no lane depends on remembering a flag.
-- **While the user is present, rotate at a PR boundary** past `rotateAt`, or when a lane's context has bloated across many PRs.
-  The lane writes a handoff and gives the user a labelled restart prompt on the brief template. An
-  idle lane over the line rotates now. A lane with no ranked work closes, and gets no prompt.
-- **While the user is away, no lane stops for context.** The away window is the only switch:
-  `rotateAt` applies while they are here. A lane over `rotateAt` keeps working with
-  lean turns and writes its handoff at each PR boundary, so a restart can pick up from any of them.
-  Rotation waits for the user's return: list the candidates then, and they restart sessions, often
-  several at once before an overnight run.
+  itself, as does the session-budget hook, so no lane depends on remembering a flag. A lane past
+  the compact window that stays there is on a machine without the setting: tell the user.
+- **Rotation is optional, day or night.** Rotate a lane at a PR boundary only when it has compacted
+  several times and drifts: it forgets the brief, repeats work, or re-asks what it was told. The
+  lane writes a handoff and gives the user a labelled restart prompt on the brief template. A lane
+  with no ranked work closes, and gets no prompt. While the user is away, the drifting lane keeps
+  working on lean turns and the rotation waits for their return. `rotateAt`, when a project sets
+  it, is a hard ceiling that applies only while the user is here.
 - **While away, refuse every self-stop for context.** A lane that stops, or asks to stop, for
   context gets an order to continue at once. "The next PR won't fit" is never a reason: the harness
   compacts context automatically, and the handoff at each PR boundary covers a restart.
-- Keep at most `maxOpusLanes` Opus lanes. Put build lanes on Sonnet where the work allows.
+- **Model per lane by `run-project` §5:** Sonnet unless the brief's `MODEL:` line names a reason
+  for Opus, and at most `maxOpusLanes` Opus lanes. The orchestrator itself runs on Opus.
 
 ## 8 · Spend is scrutinised before it is asked for
 
@@ -241,6 +243,7 @@ When a lane proposes spend (model calls, API quota, paid runs):
     state · PR · where it is testable · what the user must do;
   - colour the states: ✅ done, 🟡 in progress, ⏳ queued, 🔴 blocked;
   - run `gh pr list --state open` first, so the PR column is current;
-  - add a merged-today list, and a lane-context line for any lane over `rotateAt`.
+  - add a merged-today list, and a lane-context line for any lane past the compact window or
+    drifting.
 - Every prompt the user is to paste starts with a label line, such as
   `PROMPT FOR: <new Sonnet session, replaces lane f5 (search filters)>`. One prompt per block.

@@ -49,6 +49,13 @@ import {
 
 const T = 15_000;
 
+/** The width, in pixels, of the sheet preview an agent reads. Its height follows the sheet. */
+export const PREVIEW_EDGE = 1200;
+
+/** The device scale that brings a sheet `width` pixels wide down to the preview's width; never enlarges. */
+export const previewZoom = (width, edge = PREVIEW_EDGE) =>
+  width > edge ? edge / width : 1;
+
 /**
  * One step's verbs, in VERBS order. Page content is reached inside `scope`, never the shell.
  * Exported for its tests, which drive it with a stand-in page.
@@ -587,7 +594,28 @@ async function photograph() {
     await sheetPage.waitForTimeout(600);
     const sheet = path.join(outDir, 'sheet.png');
     await sheetPage.screenshot({ path: sheet, fullPage: true });
-    say(`\nsheet: ${sheet}`);
+    // A full-size sheet costs an agent that Reads it far more than it shows. The preview is the
+    // same page at the same layout, rendered at a device scale that brings its width down to
+    // PREVIEW_EDGE pixels, as a JPEG: the file an agent reads.
+    const preview = path.join(outDir, 'sheet-preview.jpg');
+    const width = await sheetPage.evaluate(
+      () => document.documentElement.scrollWidth,
+    );
+    const previewPage = await (
+      await browser.newContext({
+        viewport: { width: 1800, height: 1200 },
+        deviceScaleFactor: previewZoom(width),
+      })
+    ).newPage();
+    await previewPage.setContent(sheetHtml(inventory.feature, withData, base));
+    await previewPage.waitForTimeout(600);
+    await previewPage.screenshot({
+      path: preview,
+      fullPage: true,
+      type: 'jpeg',
+      quality: 70,
+    });
+    say(`\nsheet: ${sheet}\npreview (for agents to read): ${preview}`);
   } finally {
     await browser.close();
   }

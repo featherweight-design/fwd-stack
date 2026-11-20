@@ -15,39 +15,72 @@ import {
 
 const L = lines({});
 
-test('the lines default to 150k and rotateAt, and follow the config', () => {
-  assert.deepEqual(L, { warn: 150_000, critical: 450_000 });
+test('the lines default to 150k and the 300k compact window, and follow the config', () => {
+  assert.deepEqual(L, { warn: 150_000, critical: 300_000, window: 300_000 });
   assert.deepEqual(
-    lines({
-      sessionBudget: { warnTokens: 80_000 },
-      orchestrator: { rotateAt: 200_000 },
-    }),
-    { warn: 80_000, critical: 200_000 },
+    lines({ sessionBudget: { warnTokens: 80_000, compactWindow: 200_000 } }),
+    { warn: 80_000, critical: 200_000, window: 200_000 },
   );
-  assert.deepEqual(lines({ orchestrator: { rotateAt: 100_000 } }), {
+  assert.deepEqual(lines({ sessionBudget: { compactWindow: 100_000 } }), {
     warn: 100_000,
     critical: 100_000,
+    window: 100_000,
   });
   assert.match(
-    budgetMessage(120_000, lines({ orchestrator: { rotateAt: 100_000 } })),
-    /CRITICAL/,
-    'a rotation line below the default warning still speaks',
+    budgetMessage(
+      120_000,
+      lines({ sessionBudget: { compactWindow: 100_000 } }),
+    ),
+    /PAST THE COMPACT WINDOW/,
+    'a window below the default warning still speaks',
   );
 });
 
-test('quiet below the warning line, then a warning, then critical', () => {
-  assert.equal(budgetMessage(null, L), null);
-  assert.equal(budgetMessage(149_999, L), null);
-  assert.match(budgetMessage(150_000, L), /WARNING.*~150k/);
-  assert.match(budgetMessage(462_000, L), /CRITICAL.*~462k.*rotate/);
+test('a project rotateAt below the window stays its upper line; above it, the window rules', () => {
+  const r = lines({ orchestrator: { rotateAt: 200_000 } });
+  assert.deepEqual(r, { warn: 150_000, critical: 200_000, window: 300_000 });
+  assert.match(
+    budgetMessage(250_000, r),
+    /PAST ROTATEAT.*200k.*rotate at the next PR boundary/,
+  );
+  assert.match(
+    budgetMessage(250_000, r, true),
+    /waits for the user's return.*never stop/,
+  );
+  assert.deepEqual(lines({ orchestrator: { rotateAt: 600_000 } }), L);
 });
 
-test('bands: one for the warning, one for critical, then one per 100k past it', () => {
+test('quiet below the warning line, then a warning, then past the window', () => {
+  assert.equal(budgetMessage(null, L), null);
+  assert.equal(budgetMessage(149_999, L), null);
+  assert.match(budgetMessage(150_000, L), /WARNING.*~150k.*configured window/);
+  const past = budgetMessage(320_000, L);
+  assert.match(past, /PAST THE COMPACT WINDOW.*~320k.*autoCompactWindow/);
+  assert.match(past, /"autoCompactWindow": 300000/);
+});
+
+test('no message asks for a rotation on size; rotation is for drift', () => {
+  for (const context of [150_000, 320_000, 900_000])
+    for (const away of [false, true]) {
+      const m = budgetMessage(context, L, away);
+      assert.match(m, /Keep turns lean/);
+      assert.match(
+        m,
+        /Rotate only if this session has compacted several times and drifts/,
+      );
+      assert.doesNotMatch(
+        m,
+        /ask the orchestrator to rotate|rotation (at|line)/,
+      );
+    }
+});
+
+test('bands: one for the warning, one for the window, then one per 100k past it', () => {
   assert.deepEqual(
-    [0, 149_999, 150_000, 449_999, 450_000, 549_999, 550_000, 930_000].map(
+    [0, 149_999, 150_000, 299_999, 300_000, 399_999, 400_000, 930_000].map(
       (c) => band(c, L),
     ),
-    [0, 0, 1, 1, 2, 2, 3, 6],
+    [0, 0, 1, 1, 2, 2, 3, 8],
   );
 });
 
@@ -126,24 +159,23 @@ test('context is the last main-session turn, read from the tail', () => {
   );
 });
 
-test('while the user is away both lines say keep working, never rotate or stop', () => {
-  const l = { warn: 150_000, critical: 450_000 };
+test('while the user is away every message says never stop for context', () => {
   for (const context of [200_000, 500_000, 900_000]) {
-    const m = budgetMessage(context, l, true);
+    const m = budgetMessage(context, L, true);
     assert.match(m, /USER AWAY/);
-    assert.match(m, /keep working/);
-    assert.match(m, /rotation line does not apply while they are away/);
-    assert.match(m, /Never stop, or ask to stop, for context/);
-    assert.doesNotMatch(m, /rotation at/);
-    assert.doesNotMatch(m, /ask the orchestrator to rotate/);
+    assert.match(m, /never stop, or ask to stop, for context/);
   }
+  assert.match(
+    budgetMessage(700_000, L, true),
+    /PAST THE COMPACT WINDOW — USER AWAY/,
+    'away does not hide a session past the window',
+  );
   assert.equal(
-    budgetMessage(149_999, l, true),
+    budgetMessage(149_999, L, true),
     null,
     'quiet below the warning line',
   );
-  assert.match(budgetMessage(200_000, l), /WARNING.*rotation at 450k/);
-  assert.match(budgetMessage(500_000, l), /CRITICAL/);
+  assert.doesNotMatch(budgetMessage(200_000, L), /USER AWAY|never stop/);
 });
 
 test('switching between away and present announces the band again', () => {
