@@ -11,7 +11,7 @@ its rules add to these and win where they conflict.
 
 The run report is an email the user reads on their phone. It answers three questions per project:
 how far along is the work, what can I test now and how, and what is waiting on me. It replaces the
-old in-transcript "Morning report"; that shape (PR table, Copilot callouts, checklist) is retired.
+old in-transcript "Morning report"; that shape (PR table, review callouts, checklist) is retired.
 
 ## When to send
 

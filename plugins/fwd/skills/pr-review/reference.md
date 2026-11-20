@@ -8,34 +8,10 @@ Procedures, snippets and evidence that SKILL.md links to. Read a section only wh
   - The gate is big enough to be its own risk: defects were found in it (`truncate` matching a Tailwind class, `productIsTooling` satisfied vacuously by a docs-only PR, §7's hard stop making a never-reviewed PR unmergeable). Fix gate defects freely; adding rules is what is frozen.
   - Eight doors reach a lowered bar: doc-only, copy-only, human-reviewed, diminishing returns, soft-fixed, §7's hard stop, `## Settled`, `## Doc-sync`. Over 60 PRs after 2026-09-16: `## Settled` 48%, plain two-round bar 38%, doc-only 12%, human-reviewed 8%; sampled `## Settled` entries were substantive. A ninth door must justify itself against that count.
   - Agreement between concurrent agents (same app, day, model) is one observation, not independent evidence.
-- **The 2026-11-08 change.** Over risky PRs that ran both reviewers from 2026-10-30, Copilot found 33 real defects Claude's review missed, across 15 PRs (3 High, 15 Medium, 15 Low), in ten classes, one check each in `risk-checklist-prompt.md`: check-then-act races (4), old state meeting new code (5), a retirement or filter not swept to siblings (5), a change breaking an existing test (3), new behaviour no test pins (3), UI state not following its inputs (3), scripts/workflows/probes out of order (4), a comment/name/claim the code does not match (4), parsing that accepts impossible input (1), a house rule only Copilot had been told (1). 22 of 33 sat outside the diff. Add or tune a check only on a class that escapes more than once.
-- **Why rounds were costly (2026-09-11/12).** 20 PRs, 204 Copilot rounds, 10.2 per PR, worst 32. Four mechanical failures: a stale review triaged as fresh, a summary header treated as a gate, one over-built surface fixed five times instead of deleted once, a settled push-back re-argued thirteen times. Review itself pays: it is best at arithmetic, platform quirks and tests that measure nothing. Judge a rule by whether it removes a round; latency is the entire cost (six real reviews landed 8-18 minutes apart).
+- **The 2026-11-08 change.** Over risky PRs that ran a second, external reviewer alongside Claude from 2026-10-30, that reviewer found 33 real defects Claude's review missed, across 15 PRs (3 High, 15 Medium, 15 Low), in ten classes, one check each in `risk-checklist-prompt.md`: check-then-act races (4), old state meeting new code (5), a retirement or filter not swept to siblings (5), a change breaking an existing test (3), new behaviour no test pins (3), UI state not following its inputs (3), scripts/workflows/probes out of order (4), a comment/name/claim the code does not match (4), parsing that accepts impossible input (1), a house rule only the other reviewer had been told (1). 22 of 33 sat outside the diff. Add or tune a check only on a class that escapes more than once.
+- **Why rounds were costly (2026-09-11/12).** 20 PRs, 204 external review rounds, 10.2 per PR, worst 32. Four mechanical failures: a stale review triaged as fresh, a summary header treated as a gate, one over-built surface fixed five times instead of deleted once, a settled push-back re-argued thirteen times. Review itself pays: it is best at arithmetic, platform quirks and tests that measure nothing. Judge a rule by whether it removes a round; latency is the entire cost (six real reviews landed 8-18 minutes apart).
 - **Late rounds.** Rounds 8+ still found real defects, including ones the previous round introduced; value decays, so after round 6 only Critical/High in production code earns another round. A 35-line focus-rescue mechanism took five rounds and was deleted in the end: repeated findings on one small surface mean it is over-built.
 - **Split on file count.** Over 30 PRs: correlation(files, rounds) = +0.73, correlation(lines, rounds) = -0.00. A 5,792-line, 12-file PR took one round; a 1,096-line, 38-file PR took eleven. A 67-file PR took 32 rounds over 12.5 hours.
-
-## Requesting and verifying a Copilot review (legacy path)
-
-Copilot is off (ruling section of SKILL.md). Kept for the rollback trigger and for a user running it by hand.
-
-```bash
-gh api -X POST repos/OWNER/REPO/pulls/N/requested_reviewers --input - <<'JSON'
-{"reviewers":["copilot-pull-request-reviewer[bot]"]}
-JSON
-```
-
-- Use `--input -`: `-f` URL-encodes the `[bot]` brackets and 422s. The bare name `"Copilot"` returns 200 and attaches nothing.
-- A 200 is not proof, and REST omits bots from `requested_reviewers`. Count `review_requested` timeline events, one per round:
-
-```bash
-gh api repos/OWNER/REPO/issues/N/timeline --paginate \
-  | jq -s '[.[][]|select(.event=="review_requested")]|length'
-```
-
-- The POST response is a hint in both directions; give it two minutes before treating absence as absence. Re-POSTing in the gap is harmless.
-- A PR can exhaust Copilot after about nine rounds: the attach stops registering, and longer backoffs do not help (280s and 900s fail identically). After three failed attaches on a PR with many successful rounds, hand it to the user (UI reviewers gear), and ask whether the PR is simply done.
-- A wedged run (started, never finished) swallows later requests: the `review_requested` count stops rising and `DELETE requested_reviewers` does not remove the bot. Run `node <skill dir>/restart-review.mjs <pr> --repo owner/name`. It runs the gate's re-request check first and changes nothing if the gate refuses; otherwise it cancels the request, toggles the PR to draft and back, re-attaches Copilot plus any people and teams, and confirms on the timeline. Exit 0 means attached and restored; `NOT RESTORED:` lines are for you to fix by hand; an unconfirmed attach goes to the user.
-- GraphQL `requestReviews` 404s since 2026-09-07 and the hook denies it (it names the PR by node id). Shape, for a user running it by hand: `requestReviews(input:{pullRequestId:"<PR_NODE_ID>", botIds:["BOT_kgDOCnlnWA"], union:true})`. Use `botIds:`, never `userIds:`; read `reviewRequests` back rather than trusting the id. A live id: `gh api repos/O/R/pulls/N/reviews --jq '[.[]|select(.user.type=="Bot")][0].user.node_id'`.
-- Two agents on one repository interfere: when reviews start erroring on a healthy PR, check for another agent's request in flight before escalating backoffs. Expect rebase conflicts; do not chain past them.
 
 ## Confirm the push landed
 
@@ -96,7 +72,7 @@ The row is decided by the files the fix changed, not where the finding was ancho
 
 ## The cold-eyes precheck trial: scoring
 
-Dispatch needs the user's subagent authorization (a project grants it standing in `AGENTS.md`/`CLAUDE.md` or `.claude/fwd/pr-review.md`; otherwise ask once, and skip the pass if declined; the grant covers this pass only). Use a general-purpose subagent, never a fork, with `precheck-prompt.md` as its prompt, branch only, no plan or handoff. It is a weaker reviewer than Copilot (same model family); its job is to strip mechanical findings. Verify every finding before acting; it never gates the PR.
+Dispatch needs the user's subagent authorization (a project grants it standing in `AGENTS.md`/`CLAUDE.md` or `.claude/fwd/pr-review.md`; otherwise ask once, and skip the pass if declined; the grant covers this pass only). Use a general-purpose subagent, never a fork, with `precheck-prompt.md` as its prompt, branch only, no plan or handoff. It is a weaker reviewer than a full review pass (same model family); its job is to strip mechanical findings. Verify every finding before acting; it never gates the PR.
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/precheck.mjs" record <file>   # or - for stdin
@@ -111,7 +87,7 @@ The ledger lives in the plugin's data folder (`~/.claude/plugins/data/fwd-fwd-st
 - `--kind` is the PR's risk: `arithmetic`, `layout`, `modelling`, `wiring`, `prose`. The ledger withholds a verdict while every scored PR is one kind.
 - Do not change `precheck-prompt.md` while the trial is open: before and after rows measure different instruments.
 - Hypothesis to test once kinds are in: the pass misses an ABSENCE spanning two files (a cost drawn but never spoken, a payload whose destination is in another module) and hits what is visible inside one file.
-- At three scorable PRs of at least two kinds the ledger prints a verdict: 70% or more cuts Copilot to one confirmation round, 30-70% keeps both, under 30% means read it with the pre-open fix count before recommending deletion. Bring the verdict to the user; the section stays a trial until it exists.
+- At three scorable PRs of at least two kinds the ledger prints a verdict: 70% or more cuts a PR to one confirmation round, 30-70% keeps both, under 30% means read it with the pre-open fix count before recommending deletion. Bring the verdict to the user; the section stays a trial until it exists.
 
 ## Escape tracking (until 2026-11-30)
 

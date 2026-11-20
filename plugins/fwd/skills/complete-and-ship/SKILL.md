@@ -1,6 +1,6 @@
 ---
 name: complete-and-ship
-description: Use when a plan's remaining tasks need to be executed unattended, followed by opening a PR, requesting Copilot review, triaging feedback, and pushing the final result.
+description: Use when a plan's remaining tasks need to be executed unattended, followed by opening a PR, running the Claude review, triaging feedback, and pushing the final result.
 ---
 
 # complete-and-ship
@@ -61,12 +61,12 @@ If the diff touches customer-facing copy, run `copy-review` over it and apply it
 
 Push the branch first (`git push -u origin HEAD`), after the pre-PR gates pass. Use the project's PR template as the base, else the sections in reference.md: Summary, Test plan, Design review (UI PRs), Spec coverage and deferrals, New environment variables. Name a body file after the PR or branch (`<branch>-body.md`), never `pr-body.md`, and read it back before any `--body-file`. Follow the project's convention on AI attribution.
 
-## 7. Request review
+## 7. Review
 
-**Invoke `pr-review` and follow it.** It owns requests, the watcher (`pr-watch.mjs`, armed once via `Monitor` and left running), the stale-review check, what counts as a finding, when a fix earns a re-request, convergence and the merge bar. Run no step from memory and hand-roll no polling loop.
+**Invoke `pr-review` and follow it.** It owns which review the PR gets (risky code: `/code-review medium` plus the risk-checklist pass, recorded under `## Claude review` with `## Copilot off`; other code: a Claude review; doc, test, script and copy PRs: none; green CI always), the watcher (`pr-watch.mjs`, armed once via `Monitor` and left running), the stale-review check, what counts as a finding, when a fix earns a re-request, convergence and the merge bar. Run no step from memory and hand-roll no polling loop.
 
-- If no review arrives on the **first** request within pr-review's waiting window, leave a PR comment "Copilot review pending — will triage when it arrives." and tell the user before pushing more. Do not merge without a successful review. If Copilot errors 3+ times over hours, ask the user; never invent an errored-out fallback.
-- Re-request only where pr-review says the fix earns one.
+- Never request a Copilot review. Do not merge a code PR without its recorded Claude review; if the review cannot run, ask the user rather than inventing a fallback.
+- Run a further review round only where pr-review says the fix earns one.
 
 ## 8. Triage all comments
 
