@@ -3,18 +3,14 @@
 // dispatches; this records what it said and, after round 1, what that predicted.
 //
 // It exists because nobody knows the overlap number yet. Three PRs of data
-// decide whether the pass stays, shrinks Copilot's loop, or gets deleted — and a
+// decide whether the pass stays or gets deleted — and a
 // number nobody wrote down is a number nobody has.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-// Bump when anything changes what Copilot's ROUND 1 returns: a
-// `.github/copilot-instructions.md` change, a reviewer model change, a prompt
-// edit. Rows carry the era they were scored under, and the report never mixes
-// them. History:
-//   pre-720  — no repository custom instructions
-//   post-720 — .github/copilot-instructions.md merged in an app repository. The labels are
-//              opaque: ledger rows store them, so they are never renamed
+// Bump when anything changes what the scoring round returns: a reviewer model change or a prompt
+// edit. Rows carry the era they were scored under, and the report never mixes them. The labels
+// are opaque: ledger rows store them, so they are never renamed.
 const CURRENT_ERA = 'pre-720';
 
 import { ensureLedgerDir, ledgerPath } from './ledger-path.mjs';
@@ -359,7 +355,7 @@ function report(d) {
   }
   console.log(
     pct >= 70
-      ? 'VERDICT >=70%: cut Copilot to one confirmation round. Bring this to the user.'
+      ? 'VERDICT >=70%: the pass catches most of what review does. Bring this to the user.'
       : pct >= 30
         ? 'VERDICT 30-70%: the gate is paying. Keep both, unchanged.'
         : 'VERDICT <30%: the hit rate is low. Read it WITH the pre-open fix count above before ' +

@@ -16,21 +16,21 @@
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
             "if": "Bash(gh api *requested_reviewers*)",
             "timeout": 60,
-            "statusMessage": "pr-review: checking the re-request is earned"
+            "statusMessage": "pr-review: review requests are refused (Copilot is cut)"
           },
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
             "if": "Bash(*request-copilot-review*)",
             "timeout": 60,
-            "statusMessage": "pr-review: checking the re-request is earned"
+            "statusMessage": "pr-review: review requests are refused (Copilot is cut)"
           },
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
             "if": "Bash(*requestReviews*)",
             "timeout": 60,
-            "statusMessage": "pr-review: checking the re-request is earned"
+            "statusMessage": "pr-review: review requests are refused (Copilot is cut)"
           },
           {
             "type": "command",

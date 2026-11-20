@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// Watches one PR for the whole review cycle and prints one line per event, for the Monitor tool (each stdout
-// line is a notification). Arm it ONCE, when the PR opens, and leave it running across every re-request:
+// Watches one PR and prints one line per event, for the Monitor tool (each stdout line is a
+// notification). Arm it ONCE, when the PR opens, and leave it running across every push:
 //
 //   Monitor({ command: "node <skill dir>/pr-watch.mjs <pr>", timeout_ms: 1800000,
-//             description: "#<pr> reviews and CI" })
+//             description: "#<pr> CI" })
 //
-// It reports every new Copilot review (fresh on the head, STALE, or errored), each head's CI once it completes,
-// and the PR merging or closing, which ends it. Reviews already on the PR when it starts are not repeated. It
+// It reports each head's CI once it completes, and the PR merging or closing, which ends it. It
 // never exits silently: at `--minutes` (default 29, just inside Monitor's 30-minute cap) it prints that it timed
 // out with the PR still open, so the lane re-arms it. Why it exists: watch-core.mjs.
 //
@@ -63,20 +62,14 @@ function snapshot() {
     `repos/${repo}/pulls/${pr}`,
     '{state: .state, merged: .merged, head: .head.sha}',
   );
-  const reviews = gh(
-    `repos/${repo}/pulls/${pr}/reviews?per_page=100`,
-    '[.[] | select(.user.type == "Bot") | {id, commit_id, submitted_at, body}]',
-  );
-  // Copilot's own review run is a workflow too; CI is every other run on the head. Matched on name
-  // or path, exactly as ci-state.mjs's isReviewerRun does, so the watcher and the gate agree.
+  // CI is every workflow run on the head.
   const ciRuns = gh(
     `repos/${repo}/actions/runs?head_sha=${p.head}&per_page=100`,
-    '[.workflow_runs[] | select(((.name // "") | test("^Running Copilot Code Review$"; "i")) or ((.path // "") | test("(^|/)copilot-pull-request-reviewer$")) | not) | {head_sha, status, conclusion, name}]',
+    '[.workflow_runs[] | {head_sha, status, conclusion, name}]',
   );
   return {
     state: p.merged ? 'merged' : p.state,
     head: p.head,
-    reviews,
     ciRuns,
   };
 }
@@ -101,7 +94,7 @@ for (;;) {
   }
 }
 say(
-  `#${pr} watcher armed: ${state.round} review(s) already on the PR; reporting what comes next`,
+  `#${pr} watcher armed; reporting what comes next`,
 );
 
 const deadline = started + minutes * 60_000;

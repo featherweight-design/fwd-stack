@@ -6,12 +6,12 @@
 // behaviour in the DB or migrations, auth, payment charging or refunds, API or cron routes,
 // security, or anything destructive. Reading or displaying payment data, copy, UI and tests are not
 // risky, whatever folder the files sit in. The gate can only read paths, so a display-only change to
-// a `credits` model or a `credits` copy file read as payments code and demanded a Copilot round.
+// a `credits` model or a `credits` copy file read as payments code and demanded the risky-PR review.
 //
 // THE OVERRIDE. The lane that knows what the diff does writes a `## Risk: not risky` section in
 // the PR body, giving the reason. When the reason is real (the same placeholder test as
 // `## Claude review`, claude-review.mjs), a path-risky PR is treated as not risky: it takes a
-// recorded Claude review and no Copilot. The override is IGNORED, and the PR stays risky, when the
+// recorded Claude review. The override is IGNORED, and the PR stays risky, when the
 // diff carries a hard-risky signal (HARD_RISKY below, or a destructive diff): there a wrong
 // declaration costs data, money or access, so a lane's word is not enough.
 

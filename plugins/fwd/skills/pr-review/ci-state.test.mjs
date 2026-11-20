@@ -104,33 +104,6 @@ test('a failed check and a pending status both block', () => {
   assert.deepEqual(problems, ['test: failure', 'vercel: pending']);
 });
 
-test('a Copilot review in progress is the review, not CI, and does not block', () => {
-  const { problems, count } = ciProblemsOf({
-    runs: [
-      {
-        ...run(1, 'gate / gate', 'completed', 'success'),
-        check_suite: { id: 10 },
-      },
-      {
-        ...run(2, 'copilot-pull-request-reviewer', 'in_progress'),
-        check_suite: { id: 20 },
-      },
-    ],
-    statuses: [],
-    workflowRuns: [
-      { name: 'CI', status: 'completed', check_suite_id: 10 },
-      {
-        name: 'Running Copilot Code Review',
-        path: 'dynamic/agents/copilot-pull-request-reviewer',
-        status: 'in_progress',
-        check_suite_id: 20,
-      },
-    ],
-  });
-  assert.deepEqual(problems, []);
-  assert.equal(count, 1);
-});
-
 test('a real CI workflow still blocks while it runs', () => {
   const { problems } = ciProblemsOf({
     runs: [
@@ -145,11 +118,11 @@ test('a real CI workflow still blocks while it runs', () => {
   ]);
 });
 
-test('a project check that merely mentions Copilot is CI and still blocks', () => {
+test('a project check named for a vendor is CI and still blocks', () => {
   const { problems } = ciProblemsOf({
     runs: [
       {
-        ...run(1, 'Copilot integration tests', 'completed', 'failure'),
+        ...run(1, 'Vendor integration tests', 'completed', 'failure'),
         check_suite: { id: 30 },
       },
     ],
@@ -157,11 +130,11 @@ test('a project check that merely mentions Copilot is CI and still blocks', () =
     workflowRuns: [
       {
         name: 'CI',
-        path: '.github/workflows/copilot-tests.yml',
+        path: '.github/workflows/vendor-tests.yml',
         status: 'completed',
         check_suite_id: 30,
       },
     ],
   });
-  assert.deepEqual(problems, ['Copilot integration tests: failure']);
+  assert.deepEqual(problems, ['Vendor integration tests: failure']);
 });
