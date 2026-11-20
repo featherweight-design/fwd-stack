@@ -51,10 +51,13 @@ export function lines(config = {}) {
   return { warn, critical, window };
 }
 
-// 0 below the warning line, then 1, 2, 3, … for each 50k step from the warning line.
-export function band(context, { warn }) {
+// 0 below the warning line, then 1, 2, 3, … for each 50k step from the warning line, with one
+// extra band at the upper line so crossing it is announced even between steps.
+export function band(context, { warn, critical }) {
   if (context === null || context < warn) return 0;
-  return 1 + Math.floor((context - warn) / STEP);
+  return (
+    1 + Math.floor((context - warn) / STEP) + (context >= critical ? 1 : 0)
+  );
 }
 
 const k = (n) => `${Math.round(n / 1000)}k`;

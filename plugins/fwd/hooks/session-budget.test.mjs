@@ -81,7 +81,7 @@ test('bands: one per 50k step from the warning line', () => {
     [0, 149_999, 150_000, 199_999, 200_000, 250_000, 300_000, 930_000].map(
       (c) => band(c, L),
     ),
-    [0, 0, 1, 1, 2, 3, 4, 16],
+    [0, 0, 1, 1, 2, 3, 5, 17],
   );
 });
 
@@ -197,7 +197,6 @@ test('as a hook, each event speaks once per 50k step and then stays quiet', asyn
   const env = {
     ...process.env,
     CLAUDE_PLUGIN_DATA: join(dir, 'data'),
-    FWD_AWAY_FILE: join(dir, 'no-away'),
   };
   const script = fileURLToPath(
     new URL('./session-budget.mjs', import.meta.url),
@@ -219,7 +218,7 @@ test('as a hook, each event speaks once per 50k step and then stays quiet', asyn
         '\n' +
         'x'.repeat(context / 1000),
     );
-    const child = run(process.execPath, [script], { env });
+    const child = run(process.execPath, [script], { env, cwd: dir });
     child.child.stdin.end(
       JSON.stringify({
         hook_event_name: event,

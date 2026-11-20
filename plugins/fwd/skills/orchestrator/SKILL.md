@@ -173,8 +173,8 @@ nothing was watching.
   remove the label when the hold lifts. Create the label once per repository
   (`gh label create hold`). Every watchdog report lists the held PRs and how long each has been
   quiet, so a leftover hold is seen at the next wake. Drafts are skipped already. Without the label, every
-  held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you every
-  half hour for nothing. On each wake: nudge
+  held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you hourly
+  for nothing. On each wake: nudge
   the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow
   external events, such as a platform patch.
 - **Never wait in the foreground, present or away.** A foreground wait holds the turn, and the
