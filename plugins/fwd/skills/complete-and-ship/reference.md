@@ -172,8 +172,8 @@ Resolve conflicts file by file (`git add <file>`, then `git rebase --continue`).
 | Step 2 (some tasks done)            | Re-read plan, execute remaining unchecked tasks                            |
 | Step 3-4 (quality gate / spec work) | Re-run quality gate, re-verify spec and design assets                      |
 | Step 5-6 (env scan / PR open)       | Check if PR exists (`gh pr list`); create if not, skip if already open     |
-| Step 7 (review requested)           | Re-arm pr-review's watcher; run the stale-review check on any review there |
-| Step 8-9 (fixes pushed)             | Run pr-review's gate; resume any owed re-request, wait or triage, then 10  |
+| Step 7 (review)                     | Re-arm pr-review's watcher; check the PR body records the Claude review    |
+| Step 8-9 (fixes pushed)             | Run pr-review's gate; resume any owed triage or push, then 10              |
 | Step 10 (watching CI)               | Re-run `gh pr checks --watch`; merge if the bar and CI are green           |
 
 Detect an open PR with `gh pr list --head $(git branch --show-current) --json number,url`. Past several compactions with drift, commit, fix the plan checkboxes, write the exact next action in `## Resume`, and tell the user one line: "Session at limit — committed through [step]. Resume with `/complete-and-ship`."

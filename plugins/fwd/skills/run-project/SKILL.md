@@ -33,14 +33,14 @@ Measured on a long multi-lane run, the two tools fail in opposite ways.
   back as a summary, so the orchestrator stays lean. But it dies with the orchestrator, cannot hold
   a watcher or a cross-session wait, and cannot talk to the user.
 
-| Work                                                                             | Goes to                                                                                          | Why                                                                |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| A PR, or a line of PRs, that waits on review rounds, CI, deploys or staging runs | **Lane**                                                                                         | Waits last hours and need a watcher the session owns               |
-| Follow-ups on a surface a lane just built, while the lane has not drifted        | **The same lane**                                                                                | Its context is the asset                                           |
-| Audits, research, pipeline and code maps, measurement                            | **Subagent**                                                                                     | Bounded, read-heavy, and the summary is all the orchestrator needs |
-| Plan and spec builder-checks, readiness audits, the `pr-review` pre-open pass    | **Subagent** (general-purpose, read-only, never a fork)                                          | A cold reader is the point. A fork reads the code as intended      |
-| Drafting a doc, brief or plan that a lane will PR                                | **Subagent** drafts, **lane** PRs                                                                | Keeps PR rounds out of the orchestrator                            |
-| A short single-PR task with a short review (a copy fix, a config pin)            | **Subagent with worktree isolation**, if the orchestrator owns the review wait; otherwise a lane | Saves a terminal, but only when the wait is cheap                  |
+| Work                                                                          | Goes to                                                                                          | Why                                                                |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| A PR, or a line of PRs, that waits on review, CI, deploys or staging runs     | **Lane**                                                                                         | Waits last hours and need a watcher the session owns               |
+| Follow-ups on a surface a lane just built, while the lane has not drifted     | **The same lane**                                                                                | Its context is the asset                                           |
+| Audits, research, pipeline and code maps, measurement                         | **Subagent**                                                                                     | Bounded, read-heavy, and the summary is all the orchestrator needs |
+| Plan and spec builder-checks, readiness audits, the `pr-review` pre-open pass | **Subagent** (general-purpose, read-only, never a fork)                                          | A cold reader is the point. A fork reads the code as intended      |
+| Drafting a doc, brief or plan that a lane will PR                             | **Subagent** drafts, **lane** PRs                                                                | Keeps PR rounds out of the orchestrator                            |
+| A short single-PR task with a short review (a copy fix, a config pin)         | **Subagent with worktree isolation**, if the orchestrator owns the review wait; otherwise a lane | Saves a terminal, but only when the wait is cheap                  |
 
 **Fewer lanes, more subagents.** Run at most `maxLanes` lanes per project, typically 2–4. A new lane
 must earn its terminal by owning PRs with external waits. Close a lane that has no ranked work
