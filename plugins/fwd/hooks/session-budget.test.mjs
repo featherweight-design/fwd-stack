@@ -16,20 +16,16 @@ import {
 const L = lines({});
 
 test('the lines default to 150k and the 300k compact window, and follow the config', () => {
-  assert.deepEqual(L, { warn: 150_000, critical: 300_000 });
+  assert.deepEqual(L, { warn: 150_000, critical: 300_000, window: 300_000 });
   assert.deepEqual(
     lines({ sessionBudget: { warnTokens: 80_000, compactWindow: 200_000 } }),
-    { warn: 80_000, critical: 200_000 },
+    { warn: 80_000, critical: 200_000, window: 200_000 },
   );
   assert.deepEqual(lines({ sessionBudget: { compactWindow: 100_000 } }), {
     warn: 100_000,
     critical: 100_000,
+    window: 100_000,
   });
-  assert.deepEqual(
-    lines({ orchestrator: { rotateAt: 100_000 } }),
-    L,
-    "rotateAt is the orchestrator's, not a budget line",
-  );
   assert.match(
     budgetMessage(
       120_000,
@@ -38,6 +34,20 @@ test('the lines default to 150k and the 300k compact window, and follow the conf
     /PAST THE COMPACT WINDOW/,
     'a window below the default warning still speaks',
   );
+});
+
+test('a project rotateAt below the window stays its upper line; above it, the window rules', () => {
+  const r = lines({ orchestrator: { rotateAt: 200_000 } });
+  assert.deepEqual(r, { warn: 150_000, critical: 200_000, window: 300_000 });
+  assert.match(
+    budgetMessage(250_000, r),
+    /PAST ROTATEAT.*200k.*rotate at the next PR boundary/,
+  );
+  assert.match(
+    budgetMessage(250_000, r, true),
+    /waits for the user's return.*never stop/,
+  );
+  assert.deepEqual(lines({ orchestrator: { rotateAt: 600_000 } }), L);
 });
 
 test('quiet below the warning line, then a warning, then past the window', () => {

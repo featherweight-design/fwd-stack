@@ -49,10 +49,10 @@ import {
 
 const T = 15_000;
 
-/** The long edge, in pixels, of the sheet preview an agent reads. */
+/** The width, in pixels, of the sheet preview an agent reads. Its height follows the sheet. */
 export const PREVIEW_EDGE = 1200;
 
-/** The zoom that brings a sheet `width` pixels wide down to the preview's edge; never enlarges. */
+/** The device scale that brings a sheet `width` pixels wide down to the preview's width; never enlarges. */
 export const previewZoom = (width, edge = PREVIEW_EDGE) =>
   width > edge ? edge / width : 1;
 
