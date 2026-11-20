@@ -50,6 +50,11 @@ before anything else: its rules add to these and win where they conflict.
   build locally; push and let CI run them (`pr-review` §5). The local-test guard hook denies them.
   One build is allowed: to typecheck a fresh worktree, build its dependencies with
   `turbo run build --filter=<app>^...` (dependencies only, never the app).
+  If one build or run is truly needed (say `next start` for a demo script), ask the user for it:
+  run `echo $CLAUDE_SESSION_ID`, then give them the one line to type at their own prompt:
+  `! node ~/.claude/fwd/hooks/allow-once.mjs "<exact command>" --session=<that id>`. It allows that
+  exact command once, for 15 minutes, in this session only. Never try to arm it yourself; the guards
+  deny it.
 - **UI work follows the design pipeline.** Start UI only on a handoff with a READINESS verdict
   (`readiness-review`). Treat `design/` as reference: never import from it or copy its assets into
   `public/`. Before `gh pr create`, run `design-review`'s verify pass and put its table in the PR

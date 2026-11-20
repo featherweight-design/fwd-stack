@@ -25,6 +25,7 @@
 // `cat foo.test.ts` pass. Typecheck, lint, tsc, eslint and `gh run` are never matched.
 import { readFileSync } from 'node:fs';
 
+import { bashTamperReason, consume } from '../lib/allowance.mjs';
 import { isMain } from '../lib/is-main.mjs';
 import {
   SHELLS,
@@ -170,7 +171,10 @@ const TURBO_OTHER = new Set([
 
 const LOCAL =
   'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §5). ' +
-  'To typecheck a fresh worktree, build its dependencies with `turbo run build --filter=<app>^...` (allowed).';
+  'To typecheck a fresh worktree, build its dependencies with `turbo run build --filter=<app>^...` (allowed). ' +
+  'For one build or test run the user approves, ask them to arm it: from their own prompt they type ' +
+  '`! node ~/.claude/fwd/hooks/allow-once.mjs "<exact command>" --session=<your $CLAUDE_SESSION_ID>`; ' +
+  'it covers that one command once, for 15 minutes.';
 
 // A filter selector that picks only a package's dependencies and never the package: `X^...` in
 // turbo and pnpm. `X`, `X...`, `...X`, `...^X` (dependents), `!X` (an exclusion, so everything
@@ -436,21 +440,42 @@ if (isMain(import.meta.url)) {
   }
   if (input?.tool_name !== undefined && input.tool_name !== 'Bash')
     process.exit(0);
-  let reason = null;
-  try {
-    reason = localTestDecision(input?.tool_input?.command);
-  } catch {
-    // A parser failure must never block work; this guard catches habits, it is not a sandbox.
-    process.exit(0);
-  }
-  if (reason)
+  const say = (decision, text) =>
     process.stdout.write(
       JSON.stringify({
         hookSpecificOutput: {
           hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: `local-test-guard: ${reason}`,
+          permissionDecision: decision,
+          permissionDecisionReason: `local-test-guard: ${text}`,
         },
       }),
     );
+  const command = input?.tool_input?.command;
+  // Outside the try below: a parser failure must not let an allowance tamper through.
+  const tamper = bashTamperReason(command);
+  if (tamper) {
+    say('deny', tamper);
+    process.exit(0);
+  }
+  let reason = null;
+  try {
+    reason = localTestDecision(command);
+  } catch {
+    // A parser failure must never block work; this guard catches habits, it is not a sandbox.
+    process.exit(0);
+  }
+  if (reason) {
+    let used = null;
+    try {
+      used = consume(command, input?.session_id);
+    } catch {
+      // An unreadable allowance folder means no allowance.
+    }
+    if (used)
+      say(
+        'allow',
+        `one-time allowance used for \`${used.command}\` (armed by the user, now spent).`,
+      );
+    else say('deny', reason);
+  }
 }
