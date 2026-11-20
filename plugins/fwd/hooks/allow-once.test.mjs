@@ -79,10 +79,7 @@ test('another session cannot use it, and it survives for its own', () => {
     runGuard(env, 'pnpm build', 'lane-b').permissionDecision,
     'deny',
   );
-  assert.equal(
-    runGuard(env, 'pnpm build', undefined).permissionDecision,
-    'deny',
-  );
+  assert.equal(runGuard(env, 'pnpm build', null).permissionDecision, 'deny');
   assert.equal(
     runGuard(env, 'pnpm build', 'lane-a').permissionDecision,
     'allow',
