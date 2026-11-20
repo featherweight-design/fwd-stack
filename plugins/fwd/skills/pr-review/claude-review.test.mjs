@@ -4,9 +4,8 @@ import assert from 'node:assert/strict';
 
 import {
   claudeReviewState,
-  copilotOffBar,
-  copilotOffDoor,
-  COPILOT_OFF_HINT,
+  riskyDoor,
+  RISKY_RECORD_HINT,
   RECORD_HINT,
 } from './claude-review.mjs';
 
@@ -106,7 +105,7 @@ for (const record of [
   'One-sentence revert to the exact text of #12; no logic change.',
   'Workflow-only change; one input renamed.',
   '`cavecrew-reviewer`: 0 findings, 1 question. Confirmed.',
-  'Reviewer: `/code-review` medium, run before Copilot. 0 findings.',
+  'Reviewer: `/code-review` medium, run before merge. 0 findings.',
   'None.',
   'No findings.',
   // A finding about a pending state is a record, not a placeholder.
@@ -186,7 +185,7 @@ const BOTH =
   '/code-review medium: 1 Medium, fixed.\nChecklist pass: 2 findings (0/0/1/1), both fixed.';
 
 test('the door opens on the heading plus both passes recorded', () => {
-  assert.deepEqual(copilotOffDoor(off(BOTH)), {
+  assert.deepEqual(riskyDoor(off(BOTH)), {
     declared: true,
     codeReview: true,
     checklist: true,
@@ -197,7 +196,7 @@ test('the door opens on the heading plus both passes recorded', () => {
 
 test('"Checklist pass: no findings." counts as a record', () => {
   assert.equal(
-    copilotOffDoor(
+    riskyDoor(
       off('/code-review medium: no findings.\nChecklist pass: no findings.'),
     ).opens,
     true,
@@ -212,21 +211,21 @@ for (const line of [
 ]) {
   test(`a decorated checklist line counts: ${JSON.stringify(line)}`, () => {
     assert.equal(
-      copilotOffDoor(off(`/code-review medium: no findings.\n${line}`)).opens,
+      riskyDoor(off(`/code-review medium: no findings.\n${line}`)).opens,
       true,
     );
   });
 }
 
 test('both passes without the heading do not open the door', () => {
-  const door = copilotOffDoor(`Summary.\n\n## Claude review\n\n${BOTH}\n`);
+  const door = riskyDoor(`Summary.\n\n## Claude review\n\n${BOTH}\n`);
   assert.equal(door.declared, false);
   assert.equal(door.opens, false);
   assert.deepEqual(door.missing, ['the `## Copilot off` heading']);
 });
 
 test('the heading without the checklist pass does not open the door', () => {
-  const door = copilotOffDoor(off('/code-review medium: no findings.'));
+  const door = riskyDoor(off('/code-review medium: no findings.'));
   assert.equal(door.declared, true);
   assert.equal(door.codeReview, true);
   assert.equal(door.checklist, false);
@@ -237,7 +236,7 @@ test('the heading without the checklist pass does not open the door', () => {
 });
 
 test('the heading without /code-review does not open the door', () => {
-  const door = copilotOffDoor(off('Checklist pass: no findings.'));
+  const door = riskyDoor(off('Checklist pass: no findings.'));
   assert.equal(door.codeReview, false);
   assert.equal(door.opens, false);
   assert.deepEqual(door.missing, [
@@ -256,7 +255,7 @@ for (const placeholder of [
   'Checklist pass: run after CI is pending',
 ]) {
   test(`a placeholder checklist line is not a record: ${JSON.stringify(placeholder)}`, () => {
-    const door = copilotOffDoor(
+    const door = riskyDoor(
       off(`/code-review medium: no findings.\n${placeholder}`),
     );
     assert.equal(door.checklist, false);
@@ -265,7 +264,7 @@ for (const placeholder of [
 }
 
 test('a placeholder review section keeps the door shut even with both names in it', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     off('/code-review medium: pending\nChecklist pass: no findings.'),
   );
   assert.equal(door.opens, false);
@@ -273,7 +272,7 @@ test('a placeholder review section keeps the door shut even with both names in i
 });
 
 test('a checklist line in a later section cannot stand in for the review', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     off(
       '/code-review medium: no findings.',
       '\n## Notes\n\nChecklist pass: no findings.\n',
@@ -284,7 +283,7 @@ test('a checklist line in a later section cannot stand in for the review', () =>
 });
 
 test('a checklist line inside an HTML comment does not count', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     off(
       '/code-review medium: no findings.\n<!-- Checklist pass: no findings. -->',
     ),
@@ -294,7 +293,7 @@ test('a checklist line inside an HTML comment does not count', () => {
 
 test('a "## Copilot off" heading must be the whole heading', () => {
   assert.equal(
-    copilotOffDoor(
+    riskyDoor(
       `Summary.\n\n## Copilot off until Friday\n\n## Claude review\n\n${BOTH}\n`,
     ).declared,
     false,
@@ -302,7 +301,7 @@ test('a "## Copilot off" heading must be the whole heading', () => {
 });
 
 test('an empty body declares nothing', () => {
-  assert.deepEqual(copilotOffDoor(undefined), {
+  assert.deepEqual(riskyDoor(undefined), {
     declared: false,
     codeReview: false,
     checklist: false,
@@ -316,13 +315,13 @@ test('an empty body declares nothing', () => {
   });
 });
 
-test('the Copilot-off hint names both passes', () => {
-  assert.match(COPILOT_OFF_HINT, /\/code-review medium/);
-  assert.match(COPILOT_OFF_HINT, /Checklist pass: no findings\./);
+test('the risky-record hint names both passes', () => {
+  assert.match(RISKY_RECORD_HINT, /\/code-review medium/);
+  assert.match(RISKY_RECORD_HINT, /Checklist pass: no findings\./);
 });
 
 test('the unfilled hint is not a checklist record', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     off(
       '/code-review medium: no findings.\nChecklist pass: <n> findings (C/H/M/L), <what was fixed>',
     ),
@@ -332,7 +331,7 @@ test('the unfilled hint is not a checklist record', () => {
 });
 
 test('a "## Copilot off" heading inside an HTML comment is not a declaration', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     `Summary.\n\n<!--\n## Copilot off\n-->\n\n## Claude review\n\n${BOTH}\n`,
   );
   assert.equal(door.declared, false);
@@ -340,7 +339,7 @@ test('a "## Copilot off" heading inside an HTML comment is not a declaration', (
 });
 
 test('a commented-out Claude review section records nothing', () => {
-  const door = copilotOffDoor(
+  const door = riskyDoor(
     `Summary.\n\n## Copilot off\n\n<!--\n## Claude review\n\n${BOTH}\n-->\n`,
   );
   assert.equal(door.declared, true);
@@ -350,31 +349,7 @@ test('a commented-out Claude review section records nothing', () => {
 });
 
 test('a CRLF body still declares and records', () => {
-  assert.equal(copilotOffDoor(off(BOTH).replace(/\n/g, '\r\n')).opens, true);
-});
-
-// The gate's bar for the door: pr-gate.mjs reads copilotOffBar before the budget stop and before
-// counting Copilot rounds, so neither can stand in for a shut door.
-test('on a risky PR with the heading, the door alone decides the bar', () => {
-  assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), true), true);
-  assert.equal(
-    copilotOffBar(
-      copilotOffDoor(off('/code-review medium: no findings.')),
-      true,
-    ),
-    false,
-  );
-});
-
-test('the door does not apply without the heading or on a non-risky PR', () => {
-  assert.equal(
-    copilotOffBar(
-      copilotOffDoor(`Summary.\n\n## Claude review\n\n${BOTH}\n`),
-      true,
-    ),
-    null,
-  );
-  assert.equal(copilotOffBar(copilotOffDoor(off(BOTH)), false), null);
+  assert.equal(riskyDoor(off(BOTH).replace(/\n/g, '\r\n')).opens, true);
 });
 
 test('a placeholder word inside code is quoted material, not a placeholder', () => {

@@ -125,9 +125,9 @@ export function claudeReviewState(body) {
   return { present, recorded };
 }
 
-// OWNER RULING 2026-11-08: Copilot is off. A risky PR meets its bar with no Copilot round when the
-// body carries a `## Copilot off` heading AND its `## Claude review` records both passes the ruling
-// asks for: `/code-review` (named anywhere in the section) and a `Checklist pass:` line whose own
+// OWNER RULING 2026-11-08: Copilot is cut and never requested. A risky PR meets its merge bar when the
+// body carries the `## Copilot off` marker heading AND its `## Claude review` records both passes the
+// ruling asks for: `/code-review` (named anywhere in the section) and a `Checklist pass:` line whose own
 // text is a real record by the rule above ("Checklist pass: no findings." counts,
 // "Checklist pass: pending" does not). Both are looked for inside the Claude review section only, so
 // a later section cannot stand in for either.
@@ -136,8 +136,8 @@ const CHECKLIST =
   /^[ \t>*_-]*(?:\*\*|__)?Checklist pass(?:\*\*|__)?[ \t]*:([^\n]*)$/im;
 const CODE_REVIEW = /\/code-review\b/;
 
-/** The text a risky `## Copilot off` record must hold, said where the gate refuses it. */
-export const COPILOT_OFF_HINT =
+/** The text a risky PR's Claude review record must hold, said where the gate refuses it. */
+export const RISKY_RECORD_HINT =
   'under `## Claude review`, name `/code-review medium` and what it found, then a line ' +
   '"Checklist pass: <n> findings (C/H/M/L), <what was fixed>" or "Checklist pass: no findings."';
 
@@ -147,7 +147,7 @@ export const COPILOT_OFF_HINT =
  * records each pass; `opens` when the heading is declared and the section is a real record holding
  * both; `missing` names what is not there yet, in the order to fix it.
  */
-export function copilotOffDoor(body) {
+export function riskyDoor(body) {
   // Everything inside an HTML comment is invisible, headings included: a commented-out
   // `## Copilot off` or `## Claude review` declares and records nothing. CRLF bodies (web edits)
   // are read as LF, so a heading's line end still matches.
@@ -178,14 +178,4 @@ export function copilotOffDoor(body) {
     opens: declared && review.recorded && codeReview && checklist,
     missing,
   };
-}
-
-/**
- * The risky-PR merge bar the `## Copilot off` door decides, or `null` where the door does not apply
- * (no heading, or a PR that is not risky: those keep their own bar). With the heading on a risky PR
- * the door alone decides: a Copilot round already on the PR, or a `## Copilot budget stop`, does not
- * stand in for the two Claude passes.
- */
-export function copilotOffBar(door, risky) {
-  return door.declared && risky ? door.opens : null;
 }
