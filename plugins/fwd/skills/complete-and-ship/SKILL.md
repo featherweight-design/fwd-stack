@@ -63,14 +63,13 @@ Push the branch first (`git push -u origin HEAD`), after the pre-PR gates pass. 
 
 ## 7. Review
 
-**Invoke `pr-review` and follow it.** It owns which review the PR gets (risky code: `/code-review medium` plus the risk-checklist pass, recorded under `## Claude review` with `## Copilot off`; other code: a Claude review; doc, test, script and copy PRs: none; green CI always), the watcher (`pr-watch.mjs`, armed once via `Monitor` and left running), the stale-review check, what counts as a finding, when a fix earns a re-request, convergence and the merge bar. Run no step from memory and hand-roll no polling loop.
+**Invoke `pr-review` and follow it.** It owns which review the PR gets (risky code: `/code-review medium` plus the risk-checklist pass, recorded under `## Claude review` with `## Copilot off`; other code: a Claude review; doc, test, script and copy PRs: none; green CI always), the watcher (`pr-watch.mjs`, armed once via `Monitor` and left running), how to triage a finding and the merge bar. Run no step from memory and hand-roll no polling loop.
 
 - Never request a Copilot review. Do not merge a code PR without its recorded Claude review; if the review cannot run, ask the user rather than inventing a fallback.
-- Run a further review round only where pr-review says the fix earns one.
 
 ## 8. Triage all comments
 
-Triage per `pr-review` (severity table, nit and sweep rules, CI-only mutation check, `## Settled`). **Three consecutive rounds on the same function or component means a scope decision, not another fix.** When in doubt, treat a finding as Medium (severity signals in reference.md). Fix every valid finding, nits included.
+Triage per `pr-review` (severity table, nit and sweep rules, CI-only mutation check). **Repeated findings on the same function or component mean a scope decision, not another fix.** When in doubt, treat a finding as Medium (severity signals in reference.md). Fix every valid finding, nits included.
 
 ## 9. Rebase and push
 
@@ -114,7 +113,7 @@ Do not pause for routine operations: reading files, editing source, config, CSS 
 - Never defer without user approval before the PR opens, and list every deferral in the PR body.
 - Never begin UI tasks when the API contract is incomplete (Step 2.5).
 - Merge when pr-review's gate allows, not before and not after, unless the extension or the user reserves merging for a human.
-- Fix every valid finding, nits included; re-request only where `pr-review` says the fix earns a round. Force-push only when a rebase rewrote commits.
+- Fix every valid finding, nits included. Force-push only when a rebase rewrote commits.
 - Document every new env var, and confirm CI is green before reporting complete: a passing local gate is not passing CI.
 - If a fix introduces new errors, fix those before pushing, and commit at every task boundary.
 
