@@ -31,7 +31,8 @@ export function writeEnv(raw, envFile) {
     const id = sessionId(raw);
     if (id === null || typeof envFile !== 'string' || envFile === '')
       return false;
-    appendFileSync(envFile, `export CLAUDE_SESSION_ID=${id}\n`);
+    // A leading newline keeps the line apart from an earlier hook's line that lacks a final one.
+    appendFileSync(envFile, `\nexport CLAUDE_SESSION_ID=${id}\n`);
     return true;
   } catch {
     return false;

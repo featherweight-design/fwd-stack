@@ -30,7 +30,7 @@ test('writeEnv appends one export line and keeps earlier lines', () => {
   assert.equal(writeEnv(input('abc-1'), file), true);
   assert.equal(
     readFileSync(file, 'utf8'),
-    'export A=1\nexport CLAUDE_SESSION_ID=abc-1\n',
+    'export A=1\n\nexport CLAUDE_SESSION_ID=abc-1\n',
   );
 });
 
@@ -64,5 +64,5 @@ test('the hook exits 0 and prints nothing, with or without CLAUDE_ENV_FILE', () 
   });
   assert.equal(set.status, 0);
   assert.equal(set.stdout, '');
-  assert.equal(readFileSync(file, 'utf8'), 'export CLAUDE_SESSION_ID=abc\n');
+  assert.equal(readFileSync(file, 'utf8'), '\nexport CLAUDE_SESSION_ID=abc\n');
 });
