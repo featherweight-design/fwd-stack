@@ -101,14 +101,18 @@ to a log, which can never wake a session.
 - Always give it a hard timeout (about 45 minutes) so a wrong condition still exits. Set any
   baseline count before you request the review, not after.
 - Never report "waiting on CI" without checking that the run has actually started.
+- **Message the orchestrator once per milestone:** PR opened, red CI you cannot fix, PR merged,
+  blocked, rotated. No running updates.
 - Never wait in the foreground, even with the away window open: the user may check in on any
   session, and a foreground wait holds the turn. Foreground commands are for quick work (roughly
   under 30 seconds); the foreground-wait guard denies the rest (`orchestrator` §6).
 
 ## 4 · Keep context small
 
-- Read large files in parts (`sed -n`, `grep -n`, offsets), and hand whole-file reads and broad
-  searches to a subagent. A large read is paid again on every later turn.
+- Read large files in parts (`sed -n`, `grep -n`, offsets). A large read is paid again on every
+  later turn.
+- **Subagents only for large reads, on Sonnet (Haiku for grep-and-report).** Do small reviews,
+  prechecks and lookups inline: each subagent starts at about 50K tokens before doing anything.
 - **Compaction is not a stop.** The harness compacts at the machine's configured window (300k
   recommended, `run-project` §6), and the `PreCompact` hook keeps your role, the brief's rules,
   open PRs, watchers and next step in the summary. Keep working through it, including when you

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   band,
@@ -75,12 +76,12 @@ test('no message asks for a rotation on size; rotation is for drift', () => {
     }
 });
 
-test('bands: one for the warning, one for the window, then one per 100k past it', () => {
+test('bands: one per 50k step from the warning line', () => {
   assert.deepEqual(
-    [0, 149_999, 150_000, 299_999, 300_000, 399_999, 400_000, 930_000].map(
+    [0, 149_999, 150_000, 199_999, 200_000, 250_000, 300_000, 930_000].map(
       (c) => band(c, L),
     ),
-    [0, 0, 1, 1, 2, 2, 3, 8],
+    [0, 0, 1, 1, 2, 3, 4, 16],
   );
 });
 
@@ -185,4 +186,53 @@ test('switching between away and present announces the band again', () => {
   assert.equal(crossed('m', 2, 12, env, true), false);
   assert.equal(crossed('m', 2, 13, env), true, 'away back to present');
   assert.equal(crossed('m', 2, 14, env), false);
+});
+
+test('as a hook, each event speaks once per 50k step and then stays quiet', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+  const dir = mkdtempSync(join(tmpdir(), 'budget-'));
+  const transcript = join(dir, 't.jsonl');
+  const env = {
+    ...process.env,
+    CLAUDE_PLUGIN_DATA: join(dir, 'data'),
+    FWD_AWAY_FILE: join(dir, 'no-away'),
+  };
+  const script = fileURLToPath(
+    new URL('./session-budget.mjs', import.meta.url),
+  );
+  const fire = async (event, context) => {
+    writeFileSync(
+      transcript,
+      JSON.stringify({
+        type: 'assistant',
+        message: {
+          id: String(context),
+          usage: {
+            input_tokens: context,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+          },
+        },
+      }) +
+        '\n' +
+        'x'.repeat(context / 1000),
+    );
+    const child = run(process.execPath, [script], { env });
+    child.child.stdin.end(
+      JSON.stringify({
+        hook_event_name: event,
+        session_id: 'hook-run',
+        transcript_path: transcript,
+      }),
+    );
+    return (await child).stdout;
+  };
+  assert.equal(await fire('UserPromptSubmit', 149_000), '');
+  assert.match(await fire('UserPromptSubmit', 150_000), /~150k/);
+  assert.equal(await fire('UserPromptSubmit', 160_000), '', 'same step');
+  assert.equal(await fire('PostToolUse', 170_000), '', 'either event');
+  assert.match(await fire('PostToolUse', 200_000), /additionalContext/);
+  assert.equal(await fire('UserPromptSubmit', 210_000), '');
 });

@@ -4,10 +4,13 @@
 // from the last turn's usage in the transcript, not counted in turns.
 //
 // Two events run it:
-//   UserPromptSubmit: on every prompt over the warning line. The text goes into the model's context,
-//     not onto the user's screen, so it tells the model what to suggest.
-//   PostToolUse: once per band crossed (the warning line, the compact window, then every 100k
-//     above it), so a session running unattended, which sees no user prompt for hours, is told too.
+//   UserPromptSubmit: the text goes into the model's context, not onto the user's screen, so it
+//     tells the model what to suggest.
+//   PostToolUse: the same message, so a session running unattended, which sees no user prompt for
+//     hours, is told too.
+// Either event speaks only when the context first crosses a 50k step at or above the warning line
+// (150k, 200k, 250k, ...), once per session across both events; state lives in the plugin's data
+// folder. A session that compacts back below a step is told again when it grows past it.
 //
 // Lines: `sessionBudget.warnTokens` (default 150k) and `sessionBudget.compactWindow` (default
 // 300k), the window the harness compacts at when the machine sets the recommended
@@ -35,7 +38,7 @@ import { loadConfig } from '../lib/fwd-config.mjs';
 import { pluginDataDir } from '../lib/plugin-data.mjs';
 import { sessionSummary } from '../skills/orchestrator/lane-core.mjs';
 
-const STEP = 100_000;
+const STEP = 50_000;
 
 export function lines(config = {}) {
   const window = config.sessionBudget?.compactWindow ?? 300_000;
@@ -48,11 +51,10 @@ export function lines(config = {}) {
   return { warn, critical, window };
 }
 
-// 0 below the warning line, 1 between the lines, then 2, 3, … for each 100k past the upper line.
-export function band(context, { warn, critical }) {
+// 0 below the warning line, then 1, 2, 3, … for each 50k step from the warning line.
+export function band(context, { warn }) {
   if (context === null || context < warn) return 0;
-  if (context < critical) return 1;
-  return 2 + Math.floor((context - critical) / STEP);
+  return 1 + Math.floor((context - warn) / STEP);
 }
 
 const k = (n) => `${Math.round(n / 1000)}k`;
@@ -167,13 +169,13 @@ if (isMain(import.meta.url)) {
   const l = lines(loadConfig());
   const away = awayUntil() !== null;
   const message = budgetMessage(context, l, away);
+  // Recorded below the warning line too, so a session compacted back under it warns again.
+  if (
+    !payload.session_id ||
+    !crossed(payload.session_id, band(context, l), size, process.env, away)
+  )
+    process.exit(0);
   if (payload.hook_event_name === 'PostToolUse') {
-    // Recorded below the warning line too, so a session compacted back under it warns again.
-    if (
-      !payload.session_id ||
-      !crossed(payload.session_id, band(context, l), size, process.env, away)
-    )
-      process.exit(0);
     console.log(
       JSON.stringify({
         hookSpecificOutput: {

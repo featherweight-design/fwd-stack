@@ -163,16 +163,18 @@ messages as the user's instructions (the `lane` skill).
 Silence looks exactly like progress. Once, two lanes stalled for 8 and 19 hours overnight because
 nothing was watching.
 
+- **One watcher per PR.** Lane messages are the main wake; the watchdog heartbeat runs every
+  2-3 hours (default 150 minutes), not hourly.
 - **Lane messages are the primary wake.** The watchdog is the fallback: run
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/watchdog.mjs"` with the Bash tool's
   `run_in_background`. It polls GitHub at no model cost, and exits on a PR quiet for 30+ minutes,
-  on a truncated PR list, after five failed polls, or on the hourly heartbeat. A PR held on
+  on a truncated PR list, after five failed polls, or on the heartbeat (150 minutes by default). A PR held on
   purpose (waiting on the user, a hold on merges) gets the `hold` label so the watchdog skips it;
   remove the label when the hold lifts. Create the label once per repository
   (`gh label create hold`). Every watchdog report lists the held PRs and how long each has been
   quiet, so a leftover hold is seen at the next wake. Drafts are skipped already. Without the label, every
-  held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you hourly
-  for nothing. On each wake: nudge
+  held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you every
+  half hour for nothing. On each wake: nudge
   the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow
   external events, such as a platform patch.
 - **Never wait in the foreground, present or away.** A foreground wait holds the turn, and the
