@@ -28,15 +28,16 @@ import { modelRiskOf } from '../pr-review/risk-override.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Pure half of countOpus: Opus sessions other than this one, or null when none reports a model.
- * Orchestrator sessions (name matches /orchestrator/i) are excluded: they run on Opus by design.
+ * Pure half of countOpus: Opus sessions other than this one, or null when no other session reports
+ * a model. Orchestrator sessions (name matches /orchestrator/i) run on Opus by design and are not
+ * counted, but a readable orchestrator model still proves the transcripts are readable.
  */
 export function opusIn(lanes, ownSession) {
-  const others = lanes.filter(
-    (l) => l.session !== ownSession && !/orchestrator/i.test(l.name ?? ''),
-  );
+  const others = lanes.filter((l) => l.session !== ownSession);
   if (!others.some((l) => l.model)) return null;
-  return others.filter((l) => /opus/i.test(l.model ?? '')).length;
+  return others.filter(
+    (l) => !/orchestrator/i.test(l.name ?? '') && /opus/i.test(l.model ?? ''),
+  ).length;
 }
 
 /** Opus sessions running now, or null when the transcripts cannot say. */
