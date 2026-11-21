@@ -136,9 +136,10 @@ node model-pick.mjs [--orchestrator] [--sonnet-failed "<what failed>"] \
   [--subagent [--read-only]] [--json] <path> [<path>...]
 ```
 
-First match wins: `--orchestrator` is Opus; `--sonnet-failed` is Opus, naming the failed attempt;
-a planned path in money, auth, migrations or security is Opus, naming the path (API routes alone
-do not count); `--subagent` is Sonnet, or Haiku with `--read-only`; anything else is Sonnet. When
+First match wins: `--orchestrator` is Opus; `--subagent` is Sonnet, or Haiku with `--read-only`,
+always (a subagent is never Opus); `--sonnet-failed` is Opus, naming the failed attempt; a planned
+path in money, auth, migrations or security is Opus, naming the path (API routes alone do not
+count); anything else is Sonnet. When
 the answer is Opus and `maxOpusLanes` Opus sessions are already running, the line says it is
 queued for the Opus slot; wait for it rather than opening another session. If the running
 sessions' models cannot be read, the cap is skipped and the line says so. The lists below stay as

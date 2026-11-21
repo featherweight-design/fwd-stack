@@ -41,15 +41,24 @@ test('API routes alone, tests and docs are not opus', () => {
     assert.equal(pick({ paths: [p] }, full).model, 'sonnet');
 });
 
-test('subagent is sonnet, haiku when read-only; a risky path still wins', () => {
+test('a subagent is never opus: haiku read-only, else sonnet, even on a risky path', () => {
+  const r = pick(
+    { subagent: true, readOnly: true, paths: ['drizzle/0001_init.sql'] },
+    full,
+  );
+  assert.equal(r.model, 'haiku');
+  assert.equal(
+    pick({ subagent: true, sonnetFailed: 'x', paths: ['src/auth.ts'] }, free)
+      .model,
+    'sonnet',
+  );
+});
+
+test('subagent is sonnet, haiku when read-only', () => {
   assert.equal(pick({ subagent: true, paths: ['a.ts'] }, free).model, 'sonnet');
   assert.equal(
     pick({ subagent: true, readOnly: true, paths: [] }, free).model,
     'haiku',
-  );
-  assert.equal(
-    pick({ subagent: true, paths: ['src/auth.ts'] }, free).model,
-    'opus',
   );
 });
 

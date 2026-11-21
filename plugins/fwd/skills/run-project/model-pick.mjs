@@ -8,9 +8,9 @@
 // Paths are the PR's planned files, from its plan; with none given they are read from stdin, one
 // per line. First rule that matches wins:
 //   1. --orchestrator          opus
-//   2. --sonnet-failed "..."   opus, naming the failed attempt
-//   3. a path in money, auth, migrations or security (risk-override.mjs, MODEL_RISKY)   opus
-//   4. --subagent              sonnet, or haiku with --read-only
+//   2. --subagent              sonnet, or haiku with --read-only; a subagent is never opus
+//   3. --sonnet-failed "..."   opus, naming the failed attempt
+//   4. a path in money, auth, migrations or security (risk-override.mjs, MODEL_RISKY)   opus
 //   5. otherwise               sonnet
 // An opus answer (not rule 1) is queued when `orchestrator.maxOpusLanes` (default 1) Opus sessions
 // are already running, counted from lane-context.mjs. When that read cannot see the model, the cap
@@ -55,6 +55,10 @@ export function pick(
   { opusCount = countOpus, maxOpus } = {},
 ) {
   if (orchestrator) return { model: 'opus', reason: 'orchestrator' };
+  if (subagent)
+    return readOnly
+      ? { model: 'haiku', reason: 'read-only subagent' }
+      : { model: 'sonnet', reason: 'subagent' };
   let reason;
   if (sonnetFailed) {
     reason = `Sonnet already failed: ${sonnetFailed}`;
@@ -64,10 +68,6 @@ export function pick(
       .find((h) => h.category);
     if (hit) {
       reason = `${hit.category} path ${hit.p}`;
-    } else if (subagent) {
-      return readOnly
-        ? { model: 'haiku', reason: 'read-only subagent' }
-        : { model: 'sonnet', reason: 'subagent' };
     } else {
       return { model: 'sonnet', reason: 'default' };
     }
