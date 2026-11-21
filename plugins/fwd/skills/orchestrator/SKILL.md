@@ -215,8 +215,9 @@ harness compacts every session at the machine's configured window (300k recommen
 - **While away, refuse every self-stop for context.** A lane that stops, or asks to stop, for
   context gets an order to continue at once. "The next PR won't fit" is never a reason: the harness
   compacts context automatically, and the handoff at each PR boundary covers a restart.
-- **Model per lane by `run-project` §5:** Sonnet unless the brief's `MODEL:` line names a reason
-  for Opus, and at most `maxOpusLanes` Opus lanes. The orchestrator itself runs on Opus.
+- **Model per PR by `run-project` §5:** paste the `MODEL:` line from `model-pick.mjs` (in the
+  `run-project` skill folder) into each brief instead of choosing. It reads the PR's planned paths
+  and caps Opus at `maxOpusLanes`. The orchestrator itself runs on Opus.
 
 ## 8 · Spend is scrutinised before it is asked for
 
