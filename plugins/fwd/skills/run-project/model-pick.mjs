@@ -21,6 +21,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig } from '../../lib/fwd-config.mjs';
+import { isMain } from '../../lib/is-main.mjs';
 import { modelRiskOf } from '../pr-review/risk-override.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -104,7 +105,7 @@ export function parseArgs(argv) {
   return o;
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+if (isMain(import.meta.url)) {
   const o = parseArgs(process.argv.slice(2));
   if (o.paths.length === 0 && !process.stdin.isTTY) {
     try {
