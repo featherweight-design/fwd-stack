@@ -24,7 +24,7 @@ Claude reviews every code PR; risky PRs get a second, targeted pass: the risk ch
 - Destructive diffs take this door too: the two Claude passes are their review; read the diff's deletes and overwrites with the care those rules were written for.
 - **`## Risk: not risky`**: risk is what the diff changes, not where it sits. A path-risky PR that only reads or displays (copy, UI, tests) gets this heading and one line of reason; the gate then wants a Claude review only. When unsure, record the call there and default to a Claude review. Ignored for destructive diffs, migrations/schema, API/cron routes, auth/session/middleware/proxy and webhooks (`HARD_RISKY`, `risk-override.mjs`). The `risk override` line prints each use for the month report.
 - **Which Claude reviewer.**
-  - **Risky PRs: `/code-review medium`, then the risk checklist pass.** After `/code-review medium` has run and its fixes are pushed, dispatch a general-purpose subagent with `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/risk-checklist-prompt.md` as its prompt. Rules are §10b's precheck rules: not a fork, the branch only, no plans or handoffs, the same subagent grant, verify every finding before acting. It is a separate pass, not an argument to `/code-review`. It reports Lows on comments, names, probes and selectors (its checks 8 and 9): fix those too.
+  - **Risky PRs: `/code-review medium`, then the risk checklist pass.** After `/code-review medium` has run and its fixes are pushed, dispatch a general-purpose subagent with `${CLAUDE_PLUGIN_ROOT}/skills/pr-review/risk-checklist-prompt.md` as its prompt. Rules are §7's precheck rules: not a fork, the branch only, no plans or handoffs, the same subagent grant, verify every finding before acting. It is a separate pass, not an argument to `/code-review`. It reports Lows on comments, names, probes and selectors (its checks 8 and 9): fix those too.
   - **Other code: `caveman:cavecrew-reviewer`**, a read-only subagent returning one line per finding. Add this to its dispatch prompt:
 
     ```markdown
@@ -78,7 +78,7 @@ A push triggers no review by itself; Claude review is run by you, per the ruling
 - **Under Bash `run_in_background`, add `--exit-on-ci`.** A background command wakes you only when it exits, so without the flag a green or red CI sits unnoticed until the 29-minute timeout. With it the watcher exits on the head's first terminal CI state (0 passed, 1 failed) or when the PR ends.
 - Subagents cannot run a long wait; it exceeds their window. The orchestrating session owns review, fix and merge. A subagent may open the PR, then return.
 
-## 4 · Triage
+## 3 · Triage
 
 - **Fix every valid finding, nits included.** Decline one only when it is technically wrong, conflicts with a ratified decision, or violates YAGNI, and say why in the `## Claude review` paragraph. "Defer for later" is never a reason; a deferral needs explicit user approval before the PR opens.
 - **A finding in a test, probe, fixture or script is fixed properly** (sweep its class), but it cannot break production and does not need a second review pass.
@@ -87,7 +87,7 @@ A push triggers no review by itself; Claude review is run by you, per the ruling
 - **The person who owns the product can overrule a ratified spec; you cannot.** When a finding cites a contract the PR breaks, stop and put the evidence to the user as a scope decision.
 - **Repeated findings on one small surface mean it is over-built.** Ask whether the code should exist; delete it rather than fix it again.
 
-**"Gate" before a push means typecheck and lint, never tests.** The local gate is typecheck + lint (plus a format check where the project has one), then `git fetch origin && git rebase origin/main`. No tests of any kind run locally: not the full suite, not targeted tests, not a local mutation check, not a local production or stub build. CI is the only test gate, and a PR merges only on green CI (§8). Every other skill that names a pre-push gate means this one. (Why: parallel lanes each running a large suite pushed machine load past 150.) The one exception is a single run the user approves: they arm it with `! node ~/.claude/fwd/hooks/allow-once.mjs "<exact command>" --session=<lane's $CLAUDE_SESSION_ID>` (exact command, one use, 15 minutes, that session only); see the `lane` skill.
+**"Gate" before a push means typecheck and lint, never tests.** The local gate is typecheck + lint (plus a format check where the project has one), then `git fetch origin && git rebase origin/main`. No tests of any kind run locally: not the full suite, not targeted tests, not a local mutation check, not a local production or stub build. CI is the only test gate, and a PR merges only on green CI (§4). Every other skill that names a pre-push gate means this one. (Why: parallel lanes each running a large suite pushed machine load past 150.) The one exception is a single run the user approves: they arm it with `! node ~/.claude/fwd/hooks/allow-once.mjs "<exact command>" --session=<lane's $CLAUDE_SESSION_ID>` (exact command, one use, 15 minutes, that session only); see the `lane` skill.
 
 CI shape this assumes: related tests on PRs and pushes to main, the full suite nightly on main (schedule and `workflow_dispatch`), and the full suite on lockfile, config, CI or dependency changes or a `ci:full` label. A red nightly goes to the orchestrator.
 
@@ -95,7 +95,7 @@ CI shape this assumes: related tests on PRs and pushes to main, the full suite n
 - **Mutation-check a fix that ships with a test, in CI or not at all.** Push a commit that deliberately breaks the fix, confirm CI fails on the new test, then push the revert; it proves the test measures anything. If a CI round trip is not worth it, skip the check and do not claim it. Never run it locally.
 - **Sweep a class by grep, not by reading.** On the first spelling, wording, formatting or plural nit, grep the whole file for the category and fix every hit in the same push. The same applies to logic: when a fix adds a new conditional, grep every sibling consumer of that data in the file before pushing. A claim that a class is swept must come from a grep command.
 
-## 8 · The merge bar
+## 4 · The merge bar
 
 - **A UI PR first needs its `## Design review` table and contact sheet.** Without them it does not meet the bar.
 - The bar for each PR kind is the table above, and the gate decides it; a PR with an unfixed Critical, High or Medium finding does not meet it.
@@ -103,7 +103,7 @@ CI shape this assumes: related tests on PRs and pushes to main, the full suite n
 - **When the bar is met, merge. Do not fix one more thing first.** An outstanding nit rides in the merge commit or becomes a follow-up.
 - **Merge yourself once the bar and CI are green**, interactive sessions included. Do not park a green PR on a confirmation. A pending design ratification is not a blocker: record the amendment, merge, and put it in the close-out. Open questions go in the PR body.
 
-## 9 · Doc-only PRs
+## 5 · Doc-only PRs
 
 Briefs, specs, plans, property tables, trackers, READMEs: anything with no runtime. The gate also counts a script edit whose every changed line is a comment, and a `plugin.json` or `package.json` change to the top-level `version` alone, as having none.
 
@@ -112,14 +112,14 @@ Briefs, specs, plans, property tables, trackers, READMEs: anything with no runti
 - **Bundle doc changes**: multiple in flight belong in one PR.
 - Never open a spec-only or plan-only PR: spec, plan and code land together. For a large feature, have a subagent review the plan before implementation.
 
-## 10 · PR structure
+## 6 · PR structure
 
 **No stacked PRs.** One PR at a time per feature line, based on `main`: open, review, merge, then cut the next off fresh `main`. Stacking looks like parallelism and is not: nothing merges until the root does, every rebase churns every child, and a child's diff contains its parent's work. To drain an existing stack bottom-up, see reference.md.
 
 - **Keep a file under roughly 600 lines**, the per-file ceiling for a review to read it whole; split a large plan into an index plus per-PR sub-files.
 - **Split on FILE COUNT, not line count.** Review surface is per-file. Over ~20 files, split (the gate also warns past ~800 runtime lines, excluding prose and generated files, as the weaker signal), and name the PR boundaries **in the plan**, before implementation starts. The natural cut is the plan's task groups (reference.md). If tasks cannot be cut, say so and get agreement before starting.
 
-## 10b · The pre-open gate
+## 7 · The pre-open gate
 
 These stop findings before review. Before opening, run these checks on your own work (detail in reference.md):
 
@@ -137,10 +137,10 @@ Immediately before `gh pr create`, dispatch a general-purpose subagent (not a fo
 - **Verify every finding before acting on it.** It generates findings and does not rule on them, and it never gates the PR: fix what is real, note what you declined, open.
 - **Record it before opening:** `node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/precheck.mjs" record <file>` (or `-` for stdin). The ledger lives in the plugin's data folder, never beside these scripts.
 - **Run it on EVERY PR while the trial is open**, including ones you feel sure about; a self-selected sample cannot answer the trial's question.
-- After the PR's first Claude review, score it with `precheck.mjs score <pr> <predicted> <first-review-total> --fixed=N --shipped=M --kind=K [note]`. `--fixed` is the pass's findings fixed before opening, `--shipped` counts demonstrated reach only, `--kind` is arithmetic, layout, modelling, wiring or prose. Scoring detail and the verdict thresholds are in reference.md.
+- After the PR's Claude review, score it with `precheck.mjs score <pr> <predicted> <review-total> --fixed=N --shipped=M --kind=K [note]`. `--fixed` is the pass's findings fixed before opening, `--shipped` counts demonstrated reach only, `--kind` is arithmetic, layout, modelling, wiring or prose. Scoring detail and the verdict thresholds are in reference.md.
 - **Do not change `precheck-prompt.md` while the trial is open.** Bring the ledger's verdict to the user; the section stays a trial until it exists.
 
-## 11 · Before opening at all
+## 8 · Before opening at all
 
 Do not open a PR on content that has not passed your own first assessment. If something upstream must be fixed first (Design owes a token, a handoff has a known gap), surface it and hold. A spec or plan written during a brainstorm is an input to the next step: commit it on a branch and hand over the path; do not push or open a PR until asked.
 
@@ -148,12 +148,12 @@ Do not open a PR on content that has not passed your own first assessment. If so
 
 | Thought                                        | Reality                                                      |
 | ---------------------------------------------- | ------------------------------------------------------------ |
-| "Bar's met, but let me fix this one nit first" | Merge. The nit rides along or becomes a follow-up. §8.       |
-| "A probe has a real bug, that's a finding"     | A probe cannot break production. Fix it, no second pass. §4. |
-| "I read the file, the class is swept"          | Swept means a grep produced the claim. §4.                   |
-| "The test passes, the fix works"               | Push a commit that breaks the fix; CI must go red. §4.       |
-| "Bar's met but I'll check before merging"      | Merge. Open questions go in the body. §8.                    |
-| "I'll stack the next slice on this branch"     | No stacked PRs. §10.                                         |
+| "Bar's met, but let me fix this one nit first" | Merge. The nit rides along or becomes a follow-up. §4.       |
+| "A probe has a real bug, that's a finding"     | A probe cannot break production. Fix it, no second pass. §3. |
+| "I read the file, the class is swept"          | Swept means a grep produced the claim. §3.                   |
+| "The test passes, the fix works"               | Push a commit that breaks the fix; CI must go red. §3.       |
+| "Bar's met but I'll check before merging"      | Merge. Open questions go in the body. §4.                    |
+| "I'll stack the next slice on this branch"     | No stacked PRs. §6.                                          |
 | "A subagent can wait out the CI"               | The wait exceeds its window. §2.                             |
 | "The review passed, so the feature is there"   | Review reads diffs. Load the routes: `feature-acceptance`.   |
 | "Copilot would catch this"                     | It is never requested. Claude review per the table above.    |

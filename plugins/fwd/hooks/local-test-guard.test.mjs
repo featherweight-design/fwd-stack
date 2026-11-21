@@ -237,7 +237,7 @@ test('denies a test run or production build in any segment', () => {
     assert.ok(reason, `expected a denial: ${JSON.stringify(command)}`);
     assert.match(reason, pattern, JSON.stringify(command));
     assert.match(reason, /typecheck and lint only/);
-    assert.match(reason, /pr-review §5/);
+    assert.match(reason, /pr-review §3/);
     assert.match(reason, /--filter=<app>\^\.\.\.` \(allowed\)/);
   }
 });

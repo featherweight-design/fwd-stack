@@ -250,7 +250,7 @@ construction, and a screen gets one color line, not four.
    the search before it runs and reads like a clean result. E2E selectors, snapshots, and
    integration tests do not fail typecheck.
 6. **Self-check**, then typecheck and lint; the affected tests run in CI, not locally
-   (pr-review §5). Test references to changed
+   (pr-review §3). Test references to changed
    strings are expected, not a blocker: update them in the same change. The binding file
    names any test file that asserts exact strings, which makes those edits always test
    edits.

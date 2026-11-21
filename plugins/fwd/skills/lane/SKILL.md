@@ -47,7 +47,7 @@ before anything else: its rules add to these and win where they conflict.
 - Approval of the task covers decisions inside it, never new tasks.
 
 - **Typecheck and lint only, never tests or a build.** Never run a test suite or a production
-  build locally; push and let CI run them (`pr-review` §5). The local-test guard hook denies them.
+  build locally; push and let CI run them (`pr-review` §3). The local-test guard hook denies them.
   One build is allowed: to typecheck a fresh worktree, build its dependencies with
   `turbo run build --filter=<app>^...` (dependencies only, never the app).
   If one build or run is truly needed (say `next start` for a demo script), ask the user for it:
