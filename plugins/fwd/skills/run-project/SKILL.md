@@ -79,7 +79,7 @@ This is your go: start now. First message to <orchestrator session name>, within
   your context size and your plan. Never ask the user anything; send every question to
   <orchestrator session name> and keep working on what it does not block.
 
-MODEL: <Sonnet | Opus: the one-line reason from run-project §5>
+MODEL: <paste the line from model-pick.mjs (run-project §5)>
 WHAT AND WHY: <the task, in the user's words where possible>
 EVIDENCE: <file:line, PR, issue, or the measurement that started it>
 OUT OF SCOPE: <what this lane must not touch>
@@ -126,6 +126,27 @@ user.
 **Sonnet is the default for lanes and subagents.** Opus is for work that needs it, named on the
 brief's `MODEL:` line with a one-line reason. At most `maxOpusLanes` (default 1) lanes run on
 Opus at once.
+
+**The `MODEL:` line comes from `model-pick.mjs`, decided per PR, not per lane.** Pass the PR's
+planned file paths from its plan (as arguments, or one per line on stdin) and paste the line it
+prints:
+
+```text
+node model-pick.mjs [--orchestrator] [--sonnet-failed "<what failed>"] \
+  [--subagent [--read-only]] [--json] <path> [<path>...]
+```
+
+First match wins: `--orchestrator` is Opus; `--subagent` is Sonnet, or Haiku with `--read-only`,
+always (a subagent is never Opus); `--sonnet-failed` is Opus, naming the failed attempt; a planned
+path in money, auth, migrations or security is Opus, naming the path (API routes alone do not
+count); anything else is Sonnet. When
+the answer is Opus and `maxOpusLanes` Opus sessions are already running, the line says it is
+queued for the Opus slot; wait for it rather than opening another session. If the running
+sessions' models cannot be read, the cap is skipped and the line says so. The lists below stay as
+the rationale.
+
+**Advisory for one week:** an orchestrator that disagrees with the line says so in its ruling log
+and follows its own judgment. After that week the line is binding.
 
 - **Opus:** an ambiguous architecture, or a design with no drawn pattern to follow; auth,
   payments, migrations or other security-sensitive changes; a debugging hunt that has already

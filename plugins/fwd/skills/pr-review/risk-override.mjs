@@ -128,3 +128,20 @@ export function riskOverride(body, { riskyPaths, destructive }) {
     };
   return { ...base, applied: true };
 }
+
+// ---- Opus-worthy paths ---------------------------------------------------------
+// The narrower set run-project's model-pick.mjs reads from a PR's PLANNED paths: money, auth,
+// migrations and security. The DB layer, webhooks and API/cron routes are risky for review but do
+// not by themselves call for Opus. Built from the parts above, so there is one definition of each.
+export const MODEL_RISKY = [
+  { category: 'money', pattern: PAYMENTS },
+  { category: 'auth', pattern: AUTH_SESSION },
+  { category: 'migrations', pattern: MIGRATION_SCHEMA },
+  { category: 'security', pattern: SECURITY },
+];
+
+/** The first MODEL_RISKY category a runtime path falls in, or null. Docs and tests never count. */
+export const modelRiskOf = (path) =>
+  isDoc(path) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(path)
+    ? null
+    : (MODEL_RISKY.find(({ pattern }) => pattern.test(path))?.category ?? null);

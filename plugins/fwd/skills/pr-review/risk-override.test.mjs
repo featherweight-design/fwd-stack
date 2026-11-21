@@ -6,6 +6,7 @@ import {
   HARD_RISKY,
   NOT_RISKY_TITLE,
   RISKY_PATH,
+  modelRiskOf,
   hardRiskySignals,
   riskOverride,
 } from './risk-override.mjs';
@@ -202,4 +203,14 @@ test('a declaration on a PR the paths already call safe is reported as not neede
   assert.equal(r.declared, true);
   assert.equal(r.applied, false);
   assert.match(r.ignored, /not needed/);
+});
+
+test('modelRiskOf names one category per path and ignores docs, tests and API routes', () => {
+  assert.equal(modelRiskOf('src/lib/billing/charge.ts'), 'money');
+  assert.equal(modelRiskOf('src/lib/auth.ts'), 'auth');
+  assert.equal(modelRiskOf('drizzle/0001_init.sql'), 'migrations');
+  assert.equal(modelRiskOf('src/lib/crypto/keys.ts'), 'security');
+  assert.equal(modelRiskOf('docs/auth.md'), null);
+  assert.equal(modelRiskOf('src/lib/billing/charge.test.ts'), null);
+  assert.equal(modelRiskOf('src/app/api/things/route.ts'), null);
 });
