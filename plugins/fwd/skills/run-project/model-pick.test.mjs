@@ -97,6 +97,23 @@ test('opusIn counts Opus sessions, not this one, and is null when blind', () => 
   assert.equal(opusIn([l('a', null)]), null);
 });
 
+test('opusIn skips orchestrator sessions but still counts Opus lanes', () => {
+  const l = (session, model, name) => ({ session, model, name });
+  assert.equal(opusIn([l('o', 'claude-opus-5-5', 'proj-orchestrator')]), 0);
+  assert.equal(
+    opusIn([
+      l('o1', 'claude-opus-5-5', 'proj-orchestrator'),
+      l('o2', 'claude-opus-5-5', 'Proj-Orchestrator'),
+      l('lane', 'claude-opus-5-5', 'proj-lane-1'),
+    ]),
+    1,
+  );
+  assert.equal(
+    opusIn([l('o', null, 'proj-orchestrator'), l('a', null, 'proj-lane-1')]),
+    null,
+  );
+});
+
 test('parseArgs reads flags and paths', () => {
   assert.deepEqual(
     parseArgs([

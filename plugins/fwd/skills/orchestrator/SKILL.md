@@ -217,7 +217,8 @@ harness compacts every session at the machine's configured window (300k recommen
   compacts context automatically, and the handoff at each PR boundary covers a restart.
 - **Model per PR by `run-project` §5:** paste the `MODEL:` line from `model-pick.mjs` (in the
   `run-project` skill folder) into each brief instead of choosing. It reads the PR's planned paths
-  and caps Opus at `maxOpusLanes`. The orchestrator itself runs on Opus.
+  and caps Opus lanes at `maxOpusLanes`. The orchestrator itself runs on Opus and never counts
+  against the cap.
 
 ## 8 · Spend is scrutinised before it is asked for
 
