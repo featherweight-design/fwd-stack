@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // PreToolUse guard for Bash: denies running a test suite or a production build on the user's
-// machine. Local checks are typecheck and lint only; CI is the only test gate (pr-review §5).
+// machine. Local checks are typecheck and lint only; CI is the only test gate (pr-review §3).
 //
 // It denies a command when any simple command in it runs:
 //
@@ -170,7 +170,7 @@ const TURBO_OTHER = new Set([
 ]);
 
 const LOCAL =
-  'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §5). ' +
+  'Local checks are typecheck and lint only: push and let CI run tests and builds (pr-review §3). ' +
   'To typecheck a fresh worktree, build its dependencies with `turbo run build --filter=<app>^...` (allowed). ' +
   'For one build or test run the user approves, ask them to arm it: from their own prompt they type ' +
   '`! node ~/.claude/fwd/hooks/allow-once.mjs "<exact command>" --session=<your $CLAUDE_SESSION_ID>`; ' +

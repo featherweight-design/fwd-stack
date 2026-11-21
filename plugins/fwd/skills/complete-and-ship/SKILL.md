@@ -38,7 +38,7 @@ Use `superpowers:executing-plans` on every unchecked task, in order. **Commit af
 
 ## 3. Quality gate
 
-Run typecheck and lint (and a format check where the project has one) for every app touched, using the project's commands. Do not run tests or a production build locally: CI is the only test gate (pr-review §5). Write tests with the code. Fix errors before the spec comparison.
+Run typecheck and lint (and a format check where the project has one) for every app touched, using the project's commands. Do not run tests or a production build locally: CI is the only test gate (pr-review §3). Write tests with the code. Fix errors before the spec comparison.
 
 ## 4. Compare implementation to the design spec and assets
 
@@ -79,7 +79,7 @@ Triage per `pr-review` (severity table, nit and sweep rules, CI-only mutation ch
 
 After pushing, watch CI (`gh pr checks <PR> --watch`; pr-review's watcher also reports it). On failure: read `gh run view <RUN_ID> --log-failed`, fix the root cause, re-run Step 3, push, re-watch. An environment-specific failure that code cannot fix goes to the user with the error and run ID; do not loop.
 
-**Merge.** With CI green on the head and pr-review's bar met, merge yourself as pr-review §8 directs: run its gate with `--action merge`, merge in its own command after checks finish, no auto-merge flags, no parking a green PR on a confirmation, no fixing one more thing first. A dispatched subagent never reaches this step; neither does a session whose extension or user reserves merging for a human (stop before merging and say so).
+**Merge.** With CI green on the head and pr-review's bar met, merge yourself as pr-review §4 directs: run its gate with `--action merge`, merge in its own command after checks finish, no auto-merge flags, no parking a green PR on a confirmation, no fixing one more thing first. A dispatched subagent never reaches this step; neither does a session whose extension or user reserves merging for a human (stop before merging and say so).
 
 ## 11. Report
 

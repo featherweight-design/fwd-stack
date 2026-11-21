@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Ledger for the pre-open review pass. The pass itself is a subagent the session
-// dispatches; this records what it said and, after round 1, what that predicted.
+// dispatches; this records what it said and, after the Claude review, what that predicted.
 //
 // It exists because nobody knows the overlap number yet. Three PRs of data
 // decide whether the pass stays or gets deleted — and a
@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 
-// Bump when anything changes what the scoring round returns: a reviewer model change or a prompt
+// Bump when anything changes what the scoring review returns: a reviewer model change or a prompt
 // edit. Rows carry the era they were scored under, and the report never mixes them. The labels
 // are opaque: ledger rows store them, so they are never renamed.
 const CURRENT_ERA = 'pre-720';
@@ -127,7 +127,7 @@ if (cmd === 'unrun') {
   process.exit(0);
 }
 
-// ---- score: what round 1 returned, and how much of it the pass had -----------
+// ---- score: what the Claude review returned, and how much of it the pass had -----------
 // Overlap is judged by the session, not matched by string: the two reviewers
 // describe the same defect in different words, and a matcher that tried would
 // report a low overlap over a pass that had predicted everything.
@@ -163,14 +163,14 @@ if (cmd === 'score') {
     kind === undefined
   ) {
     die(
-      'usage: precheck.mjs score <pr> <predicted> <round1-crit-high-med-total> --kind=K [--fixed=N --shipped=M] [note…]\n' +
+      'usage: precheck.mjs score <pr> <predicted> <review-crit-high-med-total> --kind=K [--fixed=N --shipped=M] [note…]\n' +
         "  --fixed=N: how many of the pass's findings you FIXED before opening. This is the\n" +
-        "  pass's actual output — a defect fixed pre-open never reaches round 1, so the\n" +
-        '  predicted/round1 ratio scores it ZERO exactly when the pass worked best.\n' +
+        "  pass's actual output — a defect fixed pre-open never reaches the review, so the\n" +
+        '  predicted/review ratio scores it ZERO exactly when the pass worked best.\n' +
         '  --shipped=M: of those N, how many would have SHIPPED — past your own tests,\n' +
-        '  probes and checks — rather than merely costing a review round. This number does\n' +
+        '  probes and checks — rather than merely costing a fix after review. This number does\n' +
         '  not decay as the loop gets faster, and is the half a time-saved argument misses.\n' +
-        '  --era=E: which reviewer produced round 1. Defaults to the current era; pass it\n' +
+        '  --era=E: which reviewer produced the review. Defaults to the current era; pass it\n' +
         '  only to correct a row. Rows are comparable WITHIN an era, never across one.\n' +
         "  --kind: what the PR's risk WAS — arithmetic | layout | modelling | wiring | prose.\n" +
         '  The five classes the pass targets are not equally reachable across these, so a\n' +
@@ -181,15 +181,15 @@ if (cmd === 'score') {
     encoding: 'utf8',
   }).trim();
   const d = read();
-  // `predicted` counts round-1 findings the pass had already caught, so it cannot
-  // exceed the round's own total. A row recording 2 of 1 means the scorer counted
-  // pass findings that were never in round 1 — which is the pre-open fix count
+  // `predicted` counts the review's findings the pass had already caught, so it cannot
+  // exceed the review's own total. A row recording 2 of 1 means the scorer counted
+  // pass findings that were never in the review — which is the pre-open fix count
   // (`--fixed`), a different quantity with no denominator.
   if (Number(predicted) > Number(total)) {
     die(
-      `predicted ${predicted} exceeds round-1 total ${total}. ` +
-        "`predicted` is how many of ROUND 1's findings the pass had already caught. " +
-        'Findings the pass raised that round 1 never did are `--fixed=N`, counted separately.',
+      `predicted ${predicted} exceeds review total ${total}. ` +
+        "`predicted` is how many of the REVIEW's findings the pass had already caught. " +
+        'Findings the pass raised that the review never did are `--fixed=N`, counted separately.',
     );
   }
   // By PR number first: `record` runs on the branch, `score` often runs long
@@ -224,6 +224,7 @@ if (cmd === 'score') {
     scored: true,
     pr: Number(pr),
     predicted: Number(predicted),
+    // field name kept: stored ledger rows use it
     round1: Number(total),
     kind: kind || 'unstated',
     fixed: fixedArg === undefined ? null : Number(fixedArg),
@@ -238,7 +239,7 @@ if (cmd === 'score') {
 }
 
 // ---- reporting -------------------------------------------------------------
-// Two populations, never one ratio. A row whose round 1 raised nothing has no
+// Two populations, never one ratio. A row whose review raised nothing has no
 // denominator: the pass could not be right or wrong about it, and summing those
 // zeros into a hit rate builds a fraction whose numerator and denominator come
 // from different places.
@@ -288,22 +289,22 @@ function report(d) {
     "  The pass's actual output. No denominator exists for it — a defect fixed here",
   );
   console.log(
-    '  never reaches round 1, which is why the hit rate below cannot see it.',
+    '  never reaches the review, which is why the hit rate below cannot see it.',
   );
   console.log(
-    '  The shipped count does not decay as the loop gets faster; a round saved does.',
+    '  The shipped count does not decay as the loop gets faster; a fix cycle saved does.',
   );
   console.log('');
   console.log(
-    `HIT RATE [era ${CURRENT_ERA}]: ${p}/${r}${pct === null ? '' : ` (${pct}%)`} of round-1 Crit/High/Med predicted, over ${scorable.length} PR(s) that HAD findings`,
+    `HIT RATE [era ${CURRENT_ERA}]: ${p}/${r}${pct === null ? '' : ` (${pct}%)`} of review Crit/High/Med predicted, over ${scorable.length} PR(s) that HAD findings`,
   );
   if (nothingToPredict.length > 0) {
     console.log(
-      `  ${nothingToPredict.length} further PR(s) had no round-1 findings to predict — listed, never summed:`,
+      `  ${nothingToPredict.length} further PR(s) had no review findings to predict — listed, never summed:`,
     );
     for (const e of nothingToPredict)
       console.log(
-        `    #${e.pr} [${e.kind || 'unstated'}] predicted ${e.predicted}, round 1 raised 0`,
+        `    #${e.pr} [${e.kind || 'unstated'}] predicted ${e.predicted}, the review raised 0`,
       );
   }
 
@@ -333,7 +334,7 @@ function report(d) {
   console.log('');
   if (scorable.length < 3) {
     console.log(
-      `HOLD: ${scorable.length}/3 PRs with round-1 findings to predict. No verdict yet.`,
+      `HOLD: ${scorable.length}/3 PRs with review findings to predict. No verdict yet.`,
     );
     return;
   }

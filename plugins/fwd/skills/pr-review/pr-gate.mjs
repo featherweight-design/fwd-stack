@@ -441,14 +441,14 @@ say(
 if (prData.base.ref !== prData.base.repo.default_branch) {
   warn(
     'stacked PR       ',
-    `based on ${prData.base.ref}, not ${prData.base.repo.default_branch} §10`,
+    `based on ${prData.base.ref}, not ${prData.base.repo.default_branch} §6`,
   );
 }
 // Counted on the RUNTIME diff. A threshold that fires on a 2,400-line copy
 // module is measuring the wrong thing: that module cannot be split without
 // splitting the page it draws, and prose reads far faster than a branch.
 const runtimeLines = lines - proseLines - generatedLines;
-// The pre-open trial (§10b) only answers its question if every PR feeds it. The
+// The pre-open trial (§7) only answers its question if every PR feeds it. The
 // gate cannot run the pass — that is a subagent the session dispatches — but it
 // can see whether this branch ever recorded one.
 if (onHeadBranch) {
@@ -474,20 +474,20 @@ if (onHeadBranch) {
   if (!recorded) {
     warn(
       'pre-open pass    ',
-      `no cold-eyes record for ${localBranch}. §10b: before \`gh pr create\`, dispatch a general-purpose ` +
+      `no cold-eyes record for ${localBranch}. §7: before \`gh pr create\`, dispatch a general-purpose ` +
         `subagent with ${join(here, 'precheck-prompt.md')}, then ` +
         `\`node ${quote(join(here, 'precheck.mjs'))} record <file|->\`. ` +
         `Run it on EVERY PR while the trial is open, not the uncertain ones (it needs the subagent grant a project gives in AGENTS.md or .claude/fwd/pr-review.md; without one, ask once)`,
     );
   } else {
-    say(true, 'pre-open pass    ', 'recorded §10b');
+    say(true, 'pre-open pass    ', 'recorded §7');
   }
 }
 
 if (changed > 20 || runtimeLines > 800) {
   warn(
     'size gate        ',
-    `${changed} files / ${runtimeLines} runtime lines — over the split threshold §10` +
+    `${changed} files / ${runtimeLines} runtime lines — over the split threshold §6` +
       (proseLines + generatedLines > 0
         ? ` (${proseLines} prose and ${generatedLines} generated lines excluded)`
         : ''),
@@ -496,7 +496,7 @@ if (changed > 20 || runtimeLines > 800) {
   say(
     true,
     'size gate        ',
-    `${runtimeLines} runtime lines of ${lines} — prose is not split surface §10`,
+    `${runtimeLines} runtime lines of ${lines} — prose is not split surface §6`,
   );
 }
 

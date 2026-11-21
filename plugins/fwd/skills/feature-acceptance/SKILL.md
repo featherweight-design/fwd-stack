@@ -26,8 +26,7 @@ independently.
 
 ## Why this exists
 
-One feature line, illustratively: five PRs, dozens of review rounds, dozens of
-findings, more than a day of PR lifetime. Then the user opened the app and found three gaps in a few minutes:
+One feature line, illustratively: five PRs, dozens of review findings, more than a day of PR lifetime. Then the user opened the app and found three gaps in a few minutes:
 
 - two of the three routes the feature claimed didn't show the new control;
 - a fourth route was right on desktop and wrong on the phone;

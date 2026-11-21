@@ -43,13 +43,13 @@ Dispatch needs the user's subagent authorization (a project grants it standing i
 
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/precheck.mjs" record <file>   # or - for stdin
-node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/precheck.mjs" score <pr> <predicted> <first-review-total> --fixed=N --shipped=M --kind=K [note]
+node "${CLAUDE_PLUGIN_ROOT}/skills/pr-review/precheck.mjs" score <pr> <predicted> <review-total> --fixed=N --shipped=M --kind=K [note]
 ```
 
 The ledger lives in the plugin's data folder (`~/.claude/plugins/data/fwd-fwd-stack/`, or under `CLAUDE_CONFIG_DIR`), never beside the scripts: it holds finding text from private repositories. A PR's first `score` runs in a checkout of its branch; re-scoring can run elsewhere with `--repo=owner/name`.
 
 - Run it on EVERY PR while the trial is open; a self-selected sample cannot answer the trial's question.
-- `--fixed=N` is the number that matters: the pass's findings you fixed before opening. A pre-open fix never reaches the first review, so the `predicted/first-review` hit rate scores zero when the pass worked best. The ledger never divides one by the other.
+- `--fixed=N` is the number that matters: the pass's findings you fixed before opening. A pre-open fix never reaches the review, so the `predicted/review` hit rate scores zero when the pass worked best. The ledger never divides one by the other.
 - `--shipped=M` counts DEMONSTRATED reach (something consumed the defect), not plausible reach; on prose, zero unless a consumer quoted it.
 - `--kind` is the PR's risk: `arithmetic`, `layout`, `modelling`, `wiring`, `prose`. The ledger withholds a verdict while every scored PR is one kind.
 - Do not change `precheck-prompt.md` while the trial is open: before and after rows measure different instruments.

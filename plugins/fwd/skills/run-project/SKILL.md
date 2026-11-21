@@ -91,7 +91,7 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   list every scratch database branch you create; name scratch files after their PR or task
   (pr<N>-body.md), never a generic name, and read a body file back before --body-file;
   typecheck and lint only, never tests or a production build locally, CI runs them
-  (pr-review §5); every wait runs in the background (`run_in_background` or Monitor), never
+  (pr-review §3); every wait runs in the background (`run_in_background` or Monitor), never
   a foreground loop (orchestrator §6); full pr-review on every PR; copy through copy-review;
   UI only on a handoff with a READINESS verdict, a `## Design review` table and a contact
   sheet in every UI PR, design/ as reference only; when the task ends, stop your dev servers
@@ -111,7 +111,7 @@ user.
   the user asked for them. A project adopts this model by saying so in its `AGENTS.md` or
   `CLAUDE.md`, or in `.claude/fwd/run-project.md`, and that grant covers the subagent work in §1.
   Without it, ask the user once, then record the answer there. `pr-review`'s pre-open pass has its
-  own grant (§10b).
+  own grant (§7).
 - Give the subagent the question, the paths, and what to return (a table, file:line findings, or a
   verdict). Do not give it the whole conversation.
 - Use a fresh general-purpose agent for cold-eyes work (reviews, audits, builder-checks), never a
