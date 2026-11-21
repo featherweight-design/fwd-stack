@@ -13,8 +13,9 @@
 //   4. a path in money, auth, migrations or security (risk-override.mjs, MODEL_RISKY)   opus
 //   5. otherwise               sonnet
 // An opus answer (not rule 1) is queued when `orchestrator.maxOpusLanes` (default 1) Opus sessions
-// are already running, counted from lane-context.mjs. When that read cannot see the model, the cap
-// is skipped and the reason says so.
+// are already running, counted from lane-context.mjs. Orchestrator sessions (named like
+// "<project>-orchestrator") run on Opus by design and are never counted.
+// When that read cannot see the model, the cap is skipped and the reason says so.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -26,11 +27,17 @@ import { modelRiskOf } from '../pr-review/risk-override.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-/** Pure half of countOpus: Opus sessions other than this one, or null when none reports a model. */
+/**
+ * Pure half of countOpus: Opus sessions other than this one, or null when no other session reports
+ * a model. Orchestrator sessions (name matches /orchestrator/i) run on Opus by design and are not
+ * counted, but a readable orchestrator model still proves the transcripts are readable.
+ */
 export function opusIn(lanes, ownSession) {
   const others = lanes.filter((l) => l.session !== ownSession);
   if (!others.some((l) => l.model)) return null;
-  return others.filter((l) => /opus/i.test(l.model ?? '')).length;
+  return others.filter(
+    (l) => !/orchestrator/i.test(l.name ?? '') && /opus/i.test(l.model ?? ''),
+  ).length;
 }
 
 /** Opus sessions running now, or null when the transcripts cannot say. */
