@@ -340,11 +340,10 @@ const ALLOW = [
   'ls -la .worktrees/*/apps/api/.env.local',
   'stat x/.env.local',
   'if [ -e x/.env.local ]; then echo present; fi',
-  // This exact loop was denied before this PR: the stored-login matcher read the folder glob
-  // `.worktrees/*` as a possible credential file name. A `for` word list only names what the
-  // glob expands to, so the shell's no-leading-dot rule applies there (names only).
-  'for d in .worktrees/*; do [ -e $d/apps/api/.env.local ] && echo $d; done',
-  'for d in .worktrees/*; do echo $d; done',
+  // Existence checks over worktrees: a literal path, or `ls -d` with the glob in the middle.
+  'test -e .worktrees/x/apps/api/.env.local',
+  'ls -d .worktrees/x/apps/api/.env.local',
+  'ls -d .worktrees/*/apps/api/.env.local',
   'gh pr view 1 --json state',
   'docker compose up -d',
   'echo $((1 + 2))',
@@ -531,7 +530,36 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'cat ~/.claude/[!x]*',
     'cat ~/.claude/[^x]*',
     'cat ~/.claude/[.]*',
-    // dotfile globbing turned on: denied even for a names-only use of the glob
+    // The loop that was denied before this PR stays denied: a glob may match a dotfile wherever it
+    // appears, a `for` word list included, and dotglob/globdots can be switched on in ways a
+    // pattern cannot follow. An existence check must use a literal path (`test -e
+    // .worktrees/x/apps/api/.env.local`) or `ls -d .worktrees/*/apps/api/.env.local`.
+    'for d in .worktrees/*; do [ -e $d/apps/api/.env.local ] && echo $d; done',
+    'for d in .worktrees/*; do echo $d; done',
+    'for d in ~/.claude/*; do echo $d; done',
+    // a glob in a folder segment
+    'cat ~/.a*/credentials',
+    'cat ~/.aw?/*',
+    'cat ~/*/credentials',
+    // dotfile globbing turned on, however it is spelled
+    'unsetopt no_glob_dots; cat ~/.claude/*',
+    'unsetopt noglobdots; cat ~/.claude/*',
+    'set -o globdots; cat ~/.claude/*',
+    'setopt g_lob_dots; cat ~/.claude/*',
+    'GLOBIGNORE+=x; cat ~/.claude/*',
+    'printf -v GLOBIGNORE x; cat ~/.claude/*',
+    'read GLOBIGNORE; cat ~/.claude/*',
+    "shopt -s dot''glob; cat ~/.claude/*",
+    'o=dotglob; shopt -s $o; cat ~/.claude/*',
+    // child shells
+    "bash -O dotglob -c 'cat ~/.claude/*'",
+    "zsh -o globdots -c 'cat ~/.claude/*'",
+    "env BASHOPTS=dotglob bash -c 'cat ~/.claude/*'",
+    "env GLOBIGNORE=x bash -c 'cat ~/.claude/*'",
+    // the zsh (D) qualifier
+    'cat ~/<->(D)',
+    'cat ~/(D)',
+    'cat ~/*(N D)',
     'shopt -s dotglob; cat ~/.claude/*',
     'shopt -s nullglob dotglob; cat ~/.claude/*',
     'setopt glob_dots; cat ~/.claude/*',
@@ -570,7 +598,6 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'security export -k login.keychain -t certs -o out.pem',
     'ls -la ~/.claude/.credentials.json',
     'stat ~/.aws/credentials',
-    'for d in ~/.claude/*; do echo $d; done',
     'cat ~/.claude/settings.json',
     'cat ~/.docker/daemon.json',
     'claude auth status',
