@@ -620,8 +620,6 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     // an ancestor of a login folder, as the root of a recursive reader
     'grep -r token ~/.config',
     'grep -r token ~/.',
-    'grep -r token ~',
-    'grep -r token $HOME',
     'grep -r token ~/.aws/..',
     'rg -uu token ~/.config',
     'rg token ~',
@@ -678,6 +676,9 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     `python3 -c "print(open('/home/u/.claude/.credentials.json').read())"`,
   ])
     assert.match(secretDecision(cmd) ?? '', /stored login/, cmd);
+  // a recursive grep from home is refused by the project-root rule first; either reason denies
+  for (const cmd of ['grep -r token ~', 'grep -r token $HOME'])
+    assert.notEqual(secretDecision(cmd), null, cmd);
   for (const cmd of [
     'security find-generic-password -s "Claude Code-credentials" -w',
     'security find-generic-password -wa me',
