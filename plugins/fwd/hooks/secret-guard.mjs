@@ -138,7 +138,9 @@ class Parser {
         // Process substitution: its command runs, so parse it.
         endWord();
         this.i += 2;
+        const from = this.segments.length;
         this.sequence(true);
+        this.markSub(from);
         this.seg = seg;
         append(c === '<' ? '/dev/fd/63' : '/dev/fd/62');
       } else if (c === '<' || c === '>') {
@@ -165,6 +167,24 @@ class Parser {
           continue;
         }
         redirect = op === '<<<' ? '<<<' : op;
+      } else if (
+        c === '(' &&
+        word !== null &&
+        /[@+?*!/]$/.test(word.text) &&
+        !redirect
+      ) {
+        // A glob group glued to a path word (@(x), *(D), ~/.aws/(x)) is part of the word.
+        let level = 0;
+        const start = this.i;
+        while (this.i < s.length) {
+          if (s[this.i] === '(') level++;
+          else if (s[this.i] === ')' && --level === 0) {
+            this.i++;
+            break;
+          }
+          this.i++;
+        }
+        append(s.slice(start, this.i));
       } else if (c === '(') {
         depth++;
         endSegment();
@@ -271,7 +291,9 @@ class Parser {
     if (s[this.i + 1] === '(') {
       const outer = this.seg;
       this.i += 2;
+      const from = this.segments.length;
       this.sequence(true);
+      this.markSub(from);
       this.seg = outer;
       return '$(...)';
     }
@@ -310,7 +332,14 @@ class Parser {
   parseNested(src) {
     const p = new Parser(src);
     p.sequence(false);
+    const from = this.segments.length;
     this.segments.push(...p.segments);
+    this.markSub(from);
+  }
+
+  // Commands found inside `$(...)`, backticks or process substitution feed the command around them.
+  markSub(from) {
+    for (const g of this.segments.slice(from)) g.sub = true;
   }
 }
 
@@ -348,30 +377,61 @@ const CREDENTIAL_TAILS = [
   ['gh', 'hosts.yml'],
   ['.docker', 'config.json'],
 ];
-const globRe = (seg) =>
-  new RegExp(
-    `^${seg
-      .replace(/[.+^${}()|\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')}$`,
-  );
-const segMatches = (seg, name) =>
-  seg === name || (/[*?]/.test(seg) && globRe(seg).test(name));
+// The one place shell glob semantics live. `seg` is a path segment from a command word, `name` a
+// credential file name. Conservative by default: a `*`, `?` or bracket expression may match a
+// dotfile, because dotglob (bash), glob_dots (zsh), GLOBIGNORE and the zsh `(D)` qualifier all
+// make a glob expand to one, and a command that reads content would then print the login.
+// Bracket expressions (`[.]x`, `[!x]*`, `[^x]*`) count as any one character. There is no
+// names-only exception: a regex cannot tell every way dotfile globbing gets switched on, so a glob
+// stays able to match a dotfile wherever it appears, in a folder segment or a `for` word list too.
+// Brace lists (`{a,b}`, `{,}`) and extglob or zsh groups (`@(x)`, `+(x)`, `(x)`) cannot be
+// modelled by the regex below, so a segment that has one may match anything. A bare `{}` (an
+// xargs or find placeholder), prose such as `fix(scope)` and anything with a space are not groups.
+const WILD_GROUP = /\{[^}]*,[^}]*\}|(^|[@+?*!])\(/;
+function shellGlobMatch(seg, name) {
+  if (seg === name) return true;
+  if (!/\s/.test(seg) && WILD_GROUP.test(seg)) return true;
+  if (!/[*?[]/.test(seg)) return false;
+  const re = seg
+    .replace(/\[[^\]]*\]/g, '?')
+    .replace(/[.+^${}()|\\[\]]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${re}$`).test(name);
+}
+// A glob in a folder segment is as conservative as one in the file name, and `**` (which the regex
+// reads as `*`) stands for any depth. Relaxing it for `*/config.json` or `~/*/credentials` is not
+// safe: shell options that make a glob reach dot folders can be set outside the command text (a
+// sourced file, BASH_ENV, ENV, ZDOTDIR, --rcfile, eval of encoded text), so no gate on the command
+// can be complete. The cost is a false positive on a folder glob over a plain `config.json`.
+const folderMatch = shellGlobMatch;
 let cwdNow = null; // the caller's working directory, for a relative path
+let oldDir = null; // the directory before the last `cd`: `cd -`, `$OLDPWD`, `~-`
+const OLDPWD_WORD = /^(\$\{oldpwd\}|\$oldpwd|~-)(?=\/|$)/i;
+const expandOld = (raw) =>
+  oldDir === null ? raw : raw.replace(OLDPWD_WORD, oldDir);
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
     .replace(/^@/, '')
     .replace(/^--?[A-Za-z][\w-]*=/, '');
+  raw = expandOld(raw);
   // A relative name typed from inside the folder (`cat credentials` in ~/.aws) still names the file.
   if (cwd && !/^[/~$]/.test(raw)) raw = `${cwd}/${raw}`;
   const path = raw.toLowerCase();
-  const parts = path.split('/').filter(Boolean);
+  // `.` and `..` segments are resolved first: `~/.aws/./credentials` and `~/.aws/x/../credentials`.
+  const parts = [];
+  for (const part of path.split('/').filter(Boolean)) {
+    if (part === '.') continue;
+    if (part === '..' && parts.length && parts[parts.length - 1] !== '..')
+      parts.pop();
+    else parts.push(part);
+  }
   return CREDENTIAL_TAILS.some((tail) => {
     if (parts.length < tail.length) return false;
     const end = parts.slice(-tail.length);
-    // Folders in the tail must match exactly; only the file name may be a glob.
+    const last = tail.length - 1;
     return tail.every((name, k) =>
-      k === tail.length - 1 ? segMatches(end[k], name) : end[k] === name,
+      k === last ? shellGlobMatch(end[k], name) : folderMatch(end[k], name),
     );
   });
 }
@@ -381,7 +441,6 @@ const CREDENTIAL_SAFE = new Set([
   'stat',
   'test',
   '[',
-  'file',
   'du',
   'chmod',
   'chown',
@@ -472,13 +531,14 @@ const KEYWORDS = new Set([
 // `command -v`, or { nested: string } for `env -S` and `watch`.
 export function unwrap(words) {
   let w = words.slice();
+  let chdir = null; // `env -C dir` / `env --chdir=dir`: the wrapped command runs there
   for (;;) {
     while (w.length && (isAssignment(w[0]) || KEYWORDS.has(w[0]))) {
       // `time -p cmd`
       if (w[0] === 'time' && w[1] === '-p') w.shift();
       w.shift();
     }
-    if (!w.length) return { words: w };
+    if (!w.length) return { words: w, chdir };
     const name = basename(w[0]);
     if (name === 'command') {
       const rest = w.slice(1);
@@ -506,6 +566,9 @@ export function unwrap(words) {
           return { nested: w.slice(k + 1).join(' ') };
         if (a.startsWith('--split-string=') || /^-[a-zA-Z]*S./.test(a))
           return { nested: a.replace(/^--split-string=|^-[a-zA-Z]*S/, '') };
+        if (/^-[a-zA-Z0-9]*C$/.test(a) || a === '--chdir')
+          chdir = w[k + 1] ?? chdir;
+        else if (a.startsWith('--chdir=')) chdir = a.slice(8);
         if (
           /^-[a-zA-Z0-9]*[uCP]$/.test(a) ||
           a === '--unset' ||
@@ -545,7 +608,7 @@ export function unwrap(words) {
       return { nested: w.slice(k).join(' ') };
     }
     const spec = WRAPPERS[name];
-    if (!spec) return { words: w };
+    if (!spec) return { words: w, chdir };
     const rest = w.slice(1);
     let k = 0;
     while (k < rest.length && isOption(rest[k])) {
@@ -822,10 +885,156 @@ function dumpRule(name, args) {
 // or send its token (`cat`, `jq`, `openssl -in`, `curl -d @file`).
 function credentialRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
-  if (sources.some(isCredentialFile))
+  if (sources.some((t) => isCredentialFile(t)))
     return `feeding a stored login file into a command can print its token. ${SAFE_CRED}`;
-  if (!CREDENTIAL_SAFE.has(name) && args.some(isCredentialFile))
+  // `du --files0-from` prints the lines of the file it is given, so it is not names-only.
+  const safe =
+    CREDENTIAL_SAFE.has(name) &&
+    !(name === 'du' && args.some((a) => /^--files0-from/.test(a)));
+  if (!safe && args.some((a) => isCredentialFile(a)))
     return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
+  return null;
+}
+
+// Folders that hold a stored login, as paths under the home folder. A command that names one, or
+// a path inside one, is refused unless it is names-only: `ls`, `stat`, `du`, `test`, `[ ]`, or
+// `find`/`fd` with no exec or print action and not piped on. That is an allowlist: tar, zip, cp -r,
+// rsync, diff -r, git grep --no-index, fd -x and a find piped to a shell all dump a folder, and a
+// blocklist of readers never ends. Matched literally anywhere (`.aws`, `.docker`, `.config/gh`)
+// and, for a glob, only at the home position, where `*` can reach a dot folder.
+// `readersOnly`: `.claude` holds scripts and settings that are run and read all the time, so it
+// is refused only to a recursive reader or an archiver, never to `node ~/.claude/x.mjs`.
+const CREDENTIAL_FOLDERS = [
+  { path: ['.aws'] },
+  { path: ['.docker'] },
+  { path: ['.config', 'gh'] },
+  { path: ['.claude'], readersOnly: true },
+];
+// `cd` prints nothing; the directories it enters are tracked by `judge` for later words.
+const NAMES_ONLY = new Set([...CREDENTIAL_SAFE, '[[', 'cd', 'pushd']);
+// Programs that only count, trim or cut the names a names-only command prints. None may read a
+// file list (`sort --files0-from=-` reads every file `find -print0` names), so `sort`, `grep`
+// and `cat` are not here.
+const NAMES_SINKS = new Set(['wc', 'head', 'tail', 'uniq', 'cut', 'tr']);
+const FIND_ACTIONS =
+  /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/;
+// Any single-dash cluster with x or X (`-Hx`, `-HX`, `-Ix`) or --exec / --exec-batch, with or without `=`.
+// No tail anchor: the command can be attached (`-x/bin/cat`, `-Hx/bin/cat`).
+const FD_ACTIONS = /^(-[A-Za-z0-9]*[xX]|--exec)/;
+// A word as path parts: `~`, `$HOME` and `/Users/<name>` are one home marker; `.` and `..` resolve.
+function pathParts(word) {
+  let raw = String(word)
+    .replace(/^@/, '')
+    .replace(/^--?[A-Za-z][\w-]*=/, '');
+  raw = expandOld(raw).toLowerCase();
+  if (cwdNow && !/^[/~$]/.test(raw)) raw = `${cwdNow.toLowerCase()}/${raw}`;
+  raw = raw.replace(/^(\$\{home\}|\$home)(?=\/|$)/, '~');
+  const parts = [];
+  for (const part of raw.split('/').filter(Boolean)) {
+    if (part === '.') continue;
+    if (part === '..' && parts.length && parts[parts.length - 1] !== '..')
+      parts.pop();
+    else parts.push(part);
+  }
+  if ((parts[0] === 'users' || parts[0] === 'home') && parts.length > 1)
+    parts.splice(0, 2, '~');
+  else if (parts[0] === 'root') parts[0] = '~';
+  return { parts, anchored: raw.startsWith('/') || raw.startsWith('~') };
+}
+// The folder a word names or sits inside, or null.
+function folderHit(word) {
+  const { parts } = pathParts(word);
+  for (const f of CREDENTIAL_FOLDERS) {
+    const n = f.path.length;
+    for (let i = f.readersOnly ? 1 : 0; i + n <= parts.length; i++) {
+      const literal = f.path.every((name, k) => parts[i + k] === name);
+      const home = parts[0] === '~' && i === 1;
+      if (
+        (!f.readersOnly && literal) ||
+        (f.readersOnly && home && literal) ||
+        (home && f.path.every((name, k) => shellGlobMatch(parts[i + k], name)))
+      )
+        return f;
+    }
+  }
+  return null;
+}
+// A word that is an ancestor of a credential folder (`~`, `~/.`, `$HOME`, `/Users/x`, `~/.config`, `/`).
+function isAncestor(word) {
+  const { parts, anchored } = pathParts(word);
+  if (!anchored) return false;
+  return CREDENTIAL_FOLDERS.some((f) => {
+    const full = ['~', ...f.path];
+    return (
+      (parts.length < full.length &&
+        parts.every((part, k) => shellGlobMatch(part, full[k]))) ||
+      (parts.length === 1 && (parts[0] === 'users' || parts[0] === 'home'))
+    );
+  });
+}
+function namesOnly(name, args, seg) {
+  if (seg.sub) return false;
+  for (let p = seg.pipeTo; p; p = p.pipeTo)
+    if (
+      !NAMES_SINKS.has(basename(p.words[0] ?? '')) ||
+      p.words.some((a) => /^--files0?-from/.test(a))
+    )
+      return false;
+  if (name === 'du' && args.some((a) => /^--files0-from/.test(a))) return false;
+  if (name === 'find') return !args.some((a) => FIND_ACTIONS.test(a));
+  if (name === 'fd' || name === 'fdfind')
+    return !args.some((a) => FD_ACTIONS.test(a));
+  return NAMES_ONLY.has(name);
+}
+const SEARCHERS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack']);
+const ARCHIVERS = new Set([
+  'tar',
+  'bsdtar',
+  'zip',
+  'cpio',
+  'rsync',
+  '7z',
+  '7za',
+  'ditto',
+]);
+// Reads a whole tree from the root it is given: a search that recurses, an archiver, `cp -r`,
+// `diff -r`, `git ... --no-index`, and `find`/`fd` that hand files on.
+function recursiveReader(name, args, seg) {
+  const flag = (re) => args.some((a) => !a.startsWith('--') && re.test(a));
+  if (name === 'rg' || name === 'ag' || name === 'ack') return true;
+  if (SEARCHERS.has(name))
+    return (
+      flag(/^-[A-Za-z0-9]*[rR]/) ||
+      args.some((a) => a === '--recursive' || a === '--dereference-recursive')
+    );
+  if (ARCHIVERS.has(name)) return true;
+  if (name === 'cp')
+    return (
+      flag(/^-[A-Za-z]*[rRa]/) ||
+      args.includes('--recursive') ||
+      args.includes('--archive')
+    );
+  if (name === 'diff')
+    return flag(/^-[A-Za-z]*r/) || args.includes('--recursive');
+  if (name === 'git') return args.includes('--no-index');
+  if (name === 'find' || name === 'fd' || name === 'fdfind')
+    return !namesOnly(name, args, seg);
+  return false;
+}
+function folderRule(name, args, seg) {
+  const words = [
+    ...args.filter((a) => !isOption(a) || a.includes('=')),
+    ...seg.redirects.filter((r) => r.op === '<').map((r) => r.target),
+  ];
+  const recursive = recursiveReader(name, args, seg);
+  const inside = words.find((w) => {
+    const f = folderHit(w);
+    return f && (f.readersOnly ? recursive : !namesOnly(name, args, seg));
+  });
+  if (inside !== undefined)
+    return `\`${name}\` on a folder that holds a stored login (or a path inside it) can print or send what it holds. Only names-only commands are allowed there: ls, stat, du, test, or find/fd with no exec and not piped on. ${SAFE_CRED}`;
+  if (recursive && words.some((w) => !isOption(w) && isAncestor(w)))
+    return `\`${name}\` over the home folder, a parent of it or \`/\` walks every stored login folder below it. Give a narrower folder, such as a project. ${SAFE_CRED}`;
   return null;
 }
 
@@ -1116,6 +1325,21 @@ function reachesTerminal(seg) {
 
 function judgeSegment(seg, depth) {
   const unwrapped = unwrap(seg.words);
+  if (!unwrapped.chdir) return judgeUnwrapped(seg, depth, unwrapped);
+  const saved = cwdNow;
+  cwdNow = enterDir(unwrapped.chdir);
+  try {
+    return judgeUnwrapped(seg, depth, unwrapped);
+  } finally {
+    cwdNow = saved;
+  }
+}
+// The working directory after `cd dir` (or `env -C dir`), so a later relative word resolves there.
+const enterDir = (dir) => {
+  dir = expandOld(dir);
+  return /^[/~$]/.test(dir) || !cwdNow ? dir : `${cwdNow}/${dir}`;
+};
+function judgeUnwrapped(seg, depth, unwrapped) {
   if (unwrapped.skip) return null;
   if (unwrapped.envDump)
     return `\`env\` with no command prints every environment value, which can include secrets. ${SAFE_DUMP}`;
@@ -1129,6 +1353,7 @@ function judgeSegment(seg, depth) {
     dumpRule(name, args) ??
     readerRule(name, args, seg.redirects) ??
     credentialRule(name, args, seg.redirects) ??
+    folderRule(name, args, seg) ??
     keychainRule(name, args) ??
     processRule(name, args);
   if (reason) return reason;
@@ -1176,13 +1401,82 @@ function judgeSegment(seg, depth) {
   return null;
 }
 
+// Defence in depth: settings that make a glob's `*` expand to dotfiles. Matching already treats
+// every glob as able to match one, so this catches the rest: the shell option, in any spelling
+// once quotes, backslashes and underscores are dropped (`dotglob`, `globdots`, `g_lob_dots`,
+// `unsetopt no_glob_dots`, `dot''glob`), `GLOBIGNORE` and `BASHOPTS`, however they are set, and
+// the zsh `(D)` qualifier after a glob character, `/` or `>` (`*(N D)`, `~/(D)`, `~/<->(D)`).
+// A command that enables any of them and also names a login path or a glob is refused.
+const dotglobOn = (command) =>
+  /dotglob|globdots|globignore|bashopts/.test(
+    command.toLowerCase().replace(/[_'"\\]/g, ''),
+  ) || /[*?\]>/]\([A-Za-z0-9.^,\- ]*D[A-Za-z0-9.^,\- ]*\)/.test(command);
+const GLOBBY = /[*?[<]|\/$|^~$/;
+let dotglobSeen = false; // set by secretDecision for the whole command, nested shells included
 function judge(command, depth = 0) {
   if (depth > 8) return null;
-  for (const seg of parseCommands(command)) {
-    const reason = judgeSegment(seg, depth);
-    if (reason) return reason;
+  const segs = parseCommands(command);
+  if (
+    dotglobSeen &&
+    segs.some((seg) =>
+      [...seg.words, ...seg.redirects.map((r) => r.target)].some(
+        (w) => isCredentialFile(w) || GLOBBY.test(w),
+      ),
+    )
+  )
+    return `turning on dotfile globbing (dotglob, glob_dots, GLOBIGNORE, BASHOPTS, a (D) qualifier) while a command names a glob or a stored login folder lets a glob expand to the login file. Name the file literally. ${SAFE_CRED}`;
+  // `cd dir && cmd .`: track the directory a `cd` enters, for the words that follow it, and the
+  // one before it (`cd -`, `popd`, `$OLDPWD`, `~-`). When a return cannot be resolved the
+  // directory is unknown, so a command that went into a login folder (or a parent of one) earlier
+  // is refused: the guard cannot tell where it landed.
+  const saved = [cwdNow, oldDir];
+  const stack = [];
+  let visitedLogin = false;
+  const lost = `returning with \`cd -\`, popd, $OLDPWD or ~- after going into a folder that holds a stored login (or a parent of one) lands somewhere the guard cannot resolve. Name the file by its full path. ${SAFE_CRED}`;
+  try {
+    for (const seg of segs) {
+      if (
+        oldDir === null &&
+        visitedLogin &&
+        seg.words.some((w) => /\$\{?oldpwd\}?|(^|[=:])~-(\/|$)/i.test(w))
+      )
+        return lost;
+      const reason = judgeSegment(seg, depth);
+      if (reason) return reason;
+      const w = unwrap(seg.words).words ?? [];
+      const cmd = basename(w[0] ?? '');
+      const dir = w.slice(1).find((x) => !isOption(x));
+      // A bare `pushd` swaps the top two directories, and `pushd`/`popd` with +N or -N rotate
+      // the stack: the landing directory is not named, so it is an unresolved return.
+      const rotates =
+        (cmd === 'pushd' && w.length === 1) ||
+        ((cmd === 'pushd' || cmd === 'popd') &&
+          w.slice(1).some((x) => /^[+-]\d+$/.test(x)));
+      if (rotates) {
+        cwdNow = null;
+        oldDir = null;
+        if (visitedLogin) return lost;
+      } else if (cmd === 'popd') {
+        oldDir = cwdNow;
+        cwdNow = stack.pop() ?? null;
+        if (cwdNow === null && visitedLogin) return lost;
+      } else if (cmd === 'cd' || cmd === 'pushd') {
+        if (cmd === 'pushd') stack.push(cwdNow);
+        if (cmd === 'cd' && dir === '-') {
+          [cwdNow, oldDir] = [oldDir, cwdNow];
+          if (cwdNow === null && visitedLogin) return lost;
+        } else {
+          const next = dir === undefined ? '~' : enterDir(dir);
+          if (folderHit(next) || isAncestor(next)) visitedLogin = true;
+          oldDir = cwdNow;
+          cwdNow = next;
+        }
+      }
+    }
+    return null;
+  } finally {
+    [cwdNow, oldDir] = saved;
   }
-  return null;
 }
 
 // Returns a denial reason, or null when the command is allowed.
@@ -1195,11 +1489,14 @@ export function secretDecision(command, options = {}) {
   envProbe = options.hasEnvFile ?? null;
   credentialProbe = options.hasCredentialFile ?? null;
   cwdNow = options.cwd ?? null;
+  dotglobSeen = dotglobOn(command);
   try {
     return judge(command);
   } finally {
+    dotglobSeen = false;
     envProbe = null;
     credentialProbe = null;
     cwdNow = null;
+    oldDir = null;
   }
 }
