@@ -355,8 +355,13 @@ const globRe = (seg) =>
       .replace(/\*/g, '.*')
       .replace(/\?/g, '.')}$`,
   );
+// A shell glob never matches a leading dot unless the pattern spells it, so `*` cannot expand to a
+// dotfile such as `.netrc`: `for d in .worktrees/*` names a folder listing, not a stored login.
 const segMatches = (seg, name) =>
-  seg === name || (/[*?]/.test(seg) && globRe(seg).test(name));
+  seg === name ||
+  (/[*?]/.test(seg) &&
+    !(name.startsWith('.') && !seg.startsWith('.')) &&
+    globRe(seg).test(name));
 let cwdNow = null; // the caller's working directory, for a relative path
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
