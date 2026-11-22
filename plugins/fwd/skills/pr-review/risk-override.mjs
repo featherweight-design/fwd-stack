@@ -24,8 +24,17 @@ const MIGRATION_SCHEMA = /(^|\/)(drizzle|migrations?|prisma|schemas?)(\/|\.)/i;
 const DB_LAYER = /(^|\/)db(\/|\.)/i;
 const AUTH_SESSION =
   /(^|\/)(auth|oauth|session)(\/|[-_.])|(^|\/)(proxy|middleware)\.[jt]s$/i;
-const SECURITY =
-  /(^|\/)(security|crypto|tokens?|secrets?|passwords?|csrf|jwt|encrypt\w*)(\/|[-_.])/i;
+// A `tokens` segment is security code UNLESS it is a design-token file: a stylesheet or data file
+// (css, scss, sass, less, json) at or under a `tokens` folder, or named `tokens.<ext>`, with no
+// auth, api, server, session, security or secret folder above it. Code files (ts, js, ...) named
+// `tokens` stay risky, as does anything ambiguous.
+const DESIGN_TOKEN_REST = String.raw`(?:\/.*)?\.(?:css|scss|sass|less|json)$`;
+const UNDER_SERVER_DIR = String.raw`(?<=(?:^|\/)(?:auth|oauth|session|api|server|security|secrets?)\/(?:.*\/)?)`;
+const SECURITY = new RegExp(
+  String.raw`(^|\/)(security|crypto|secrets?|passwords?|csrf|jwt|encrypt\w*|(?:${UNDER_SERVER_DIR}tokens?|tokens?(?!${DESIGN_TOKEN_REST})))(\/|[-_.])` +
+    String.raw`|(^|\/)[^/]*[-_.]tokens?\.[cm]?[jt]sx?$`,
+  'i',
+);
 const PAYMENTS = /(^|\/)(billing|payments?|credits?|stripe)(\/|[-_.])/i;
 const WEBHOOKS = /(^|\/)webhooks?(\/|[-_.])/i;
 // API and cron route handlers: an `api/` tree, a `routes/` or `cron/` folder, or a Next.js

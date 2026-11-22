@@ -50,6 +50,28 @@ test('RISKY_PATH still reads the paths it always did', () => {
     assert.ok(!RISKY_PATH.test(p), p);
 });
 
+test('design-token files are not risky; auth-token code stays risky', () => {
+  for (const p of [
+    'tokens/colors.css',
+    'design/tokens/spacing.json',
+    'src/styles/tokens.css',
+    'brand.tokens.json',
+  ])
+    assert.ok(!RISKY_PATH.test(p), p);
+  for (const p of [
+    'lib/auth/token.ts',
+    'src/server/refresh-token.ts',
+    'api/tokens/route.ts',
+    'utils/jwt-token.mjs',
+    'middleware/csrf-token.ts',
+    'src/server/tokens/colors.css',
+    'src/auth/tokens/theme.json',
+    'src/lib/tokens.ts',
+    'src/lib/token.ts',
+  ])
+    assert.ok(RISKY_PATH.test(p), p);
+});
+
 test('cron routes and route handler files are risky paths', () => {
   for (const p of [
     'src/cron/nightly.ts',
