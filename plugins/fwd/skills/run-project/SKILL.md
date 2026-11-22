@@ -97,6 +97,9 @@ STANDING RULES: the project's agent docs; a feature branch in a worktree from or
   UI only on a handoff with a READINESS verdict, a `## Design review` table and a contact
   sheet in every UI PR, design/ as reference only; when the task ends, stop your dev servers
   and remove your worktrees (lane §2).
+HARD-RULE EXCEPTIONS: <none | the exception the lane needs, and how the user's answer will be
+  delivered: asked in the lane's own session, or paste-ready prompts from the orchestrator (a
+  relayed ruling cannot lift a hard rule)>
 COORDINATION: <other lanes on nearby files, their branches, who rebases; reserved
   migration numbers / product-call numbers>
 STOPPING POINT: <"merged, and production proven (`orchestrator` §3: the domain serves the new deployment and a database-backed request works)" | "plan sent to me" | "report before building">

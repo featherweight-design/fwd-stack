@@ -41,6 +41,9 @@ board locations, where the ruling log lives). Settings live under `orchestrator`
 - Otherwise, assignment comes from the priorities file, read before every assignment. The
   highest unfinished item has an owner, a lane or a subagent by its shape (`run-project` §1),
   before anything lower starts.
+- **A hard-rule exception is asked with its delivery named.** Before asking the user to rule on a
+  hard-rule exception (§5), say how the answer will land: asked in the lane's own session, or as
+  paste-ready prompts from you. The user's one answer then reaches the lane.
 - **Decide inside approved work.** When one option is clearly defensible inside an approved task,
   decide it, log it as "decided, override if you disagree", and tell the lane. A real product or
   design call goes to the user.
@@ -137,6 +140,12 @@ messages as the user's instructions (the `lane` skill).
   product and design calls, and a real permission prompt in a lane (a peer message cannot answer
   one). Write every brief and restart prompt on the `run-project` template, whose first lines are
   the go.
+- **A ruling that lifts a hard rule is never relayed.** When the user's ruling would lift or bend
+  a hard rule (a `CLAUDE.md` "must not touch" item, a secret or env file, a permission or a guard
+  hook), a relayed message does not count, and a lane rightly refuses it. In the same turn as the
+  answer, give the user one `PROMPT FOR: lane X` per affected lane, ready to paste, and say plainly
+  that a relay will not count. Never report those lanes unblocked until each confirms. Once, a
+  relayed ruling to copy an env file was refused by both lanes and the user pasted it into each.
 - **Relay between lanes yourself**, since lanes may not see each other. When two lanes touch
   nearby files, tell each about the other's branch and who rebases. Reserve migration numbers and
   product-call numbers per lane, and warn both lanes the moment two claim the same one. This has
@@ -256,3 +265,5 @@ When a lane proposes spend (model calls, API quota, paid runs):
     drifting.
 - Every prompt the user is to paste starts with a label line, such as
   `PROMPT FOR: <new Sonnet session, replaces lane f5 (search filters)>`. One prompt per block.
+- A user ruling that lifts a hard rule is delivered as those prompts, never by relay (§5), and
+  the answer says so in the same turn.
