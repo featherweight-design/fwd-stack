@@ -175,8 +175,13 @@ nothing was watching.
   quiet, so a leftover hold is seen at the next wake. Drafts are skipped already. Without the label, every
   held PR ends a watch as it crosses the 30-minute line, and a night of holds wakes you hourly
   for nothing. On each wake: nudge
-  the stalled lane, give idle lanes ranked work, act, then re-arm it. Use a daily cron for slow
-  external events, such as a platform patch.
+  the stalled lane, give idle lanes ranked work, act, then re-arm it. For slow external events,
+  such as a platform patch, schedule a daily check that dispatches a Haiku or Sonnet subagent with
+  a narrow prompt, so the work never runs in this session's context.
+- **Never use `/loop`, CronCreate or ScheduleWakeup to poll or to remind inside a long-running
+  session.** Every wake re-reads the whole context; once, a reminder loop in a lane cost about 650k
+  tokens per firing. Waits go in a background command that polls at no model cost and exits on the
+  event. A reminder with no event behind it goes into the handoff or the roadmap to-do, not a timer.
 - **Never wait in the foreground, present or away.** A foreground wait holds the turn, and the
   user's messages queue behind it, so an away window is no exception: the user checks in during
   it too. Wait on CI, a PR, a deploy or a peer with the Bash tool's `run_in_background`, the

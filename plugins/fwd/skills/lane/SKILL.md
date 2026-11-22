@@ -105,6 +105,9 @@ to a log, which can never wake a session.
   `until` loop on `gh pr view <n> --json state` that exits on `MERGED` or `CLOSED`, with the usual
   timeout. If it times out with the PR still `OPEN`, the queue may have ejected it: read the
   queue's run for the PR, and treat a failure there as a failed check (fix, push, merge again).
+- Never wait or remind with `/loop`, CronCreate or ScheduleWakeup: every wake re-reads the whole
+  context (once, a reminder loop cost about 650k tokens per firing). Use the background watcher
+  above; a reminder with no event behind it goes in the handoff, not a timer.
 - Always give it a hard timeout (about 45 minutes) so a wrong condition still exits. Set any
   baseline count before you request the review, not after.
 - Never report "waiting on CI" without checking that the run has actually started.
