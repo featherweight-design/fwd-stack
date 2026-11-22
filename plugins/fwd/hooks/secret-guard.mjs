@@ -165,6 +165,24 @@ class Parser {
           continue;
         }
         redirect = op === '<<<' ? '<<<' : op;
+      } else if (
+        c === '(' &&
+        word !== null &&
+        /[@+?*!/]$/.test(word.text) &&
+        !redirect
+      ) {
+        // A glob group glued to a path word (@(x), *(D), ~/.aws/(x)) is part of the word.
+        let level = 0;
+        const start = this.i;
+        while (this.i < s.length) {
+          if (s[this.i] === '(') level++;
+          else if (s[this.i] === ')' && --level === 0) {
+            this.i++;
+            break;
+          }
+          this.i++;
+        }
+        append(s.slice(start, this.i));
       } else if (c === '(') {
         depth++;
         endSegment();
@@ -355,8 +373,13 @@ const CREDENTIAL_TAILS = [
 // Bracket expressions (`[.]x`, `[!x]*`, `[^x]*`) count as any one character. There is no
 // names-only exception: a regex cannot tell every way dotfile globbing gets switched on, so a glob
 // stays able to match a dotfile wherever it appears, in a folder segment or a `for` word list too.
+// Brace lists (`{a,b}`, `{,}`) and extglob or zsh groups (`@(x)`, `+(x)`, `(x)`) cannot be
+// modelled by the regex below, so a segment that has one may match anything. A bare `{}` (an
+// xargs or find placeholder), prose such as `fix(scope)` and anything with a space are not groups.
+const WILD_GROUP = /\{[^}]*,[^}]*\}|(^|[@+?*!])\(/;
 function shellGlobMatch(seg, name) {
   if (seg === name) return true;
+  if (!/\s/.test(seg) && WILD_GROUP.test(seg)) return true;
   if (!/[*?[]/.test(seg)) return false;
   const re = seg
     .replace(/\[[^\]]*\]/g, '?')
@@ -365,6 +388,11 @@ function shellGlobMatch(seg, name) {
     .replace(/\?/g, '.');
   return new RegExp(`^${re}$`).test(name);
 }
+// A glob in a folder segment counts only when it can reach the dotted folder of a login: its
+// first character is a dot, a bracket or a group, as in `~/.a*/credentials`. A leading `*` such as
+// `packages/*/config.json` does not (dotfile globbing being switched on is refused separately).
+const folderMatch = (seg, name) =>
+  seg === name || (/^[.[{(@+?!]/.test(seg) && shellGlobMatch(seg, name));
 let cwdNow = null; // the caller's working directory, for a relative path
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
@@ -373,12 +401,21 @@ export function isCredentialFile(word, cwd = cwdNow) {
   // A relative name typed from inside the folder (`cat credentials` in ~/.aws) still names the file.
   if (cwd && !/^[/~$]/.test(raw)) raw = `${cwd}/${raw}`;
   const path = raw.toLowerCase();
-  const parts = path.split('/').filter(Boolean);
+  // `.` and `..` segments are resolved first: `~/.aws/./credentials` and `~/.aws/x/../credentials`.
+  const parts = [];
+  for (const part of path.split('/').filter(Boolean)) {
+    if (part === '.') continue;
+    if (part === '..' && parts.length && parts[parts.length - 1] !== '..')
+      parts.pop();
+    else parts.push(part);
+  }
   return CREDENTIAL_TAILS.some((tail) => {
     if (parts.length < tail.length) return false;
     const end = parts.slice(-tail.length);
-    // A glob in a folder segment (`~/.a*/credentials`) counts as well as one in the file name.
-    return tail.every((name, k) => shellGlobMatch(end[k], name));
+    const last = tail.length - 1;
+    return tail.every((name, k) =>
+      k === last ? shellGlobMatch(end[k], name) : folderMatch(end[k], name),
+    );
   });
 }
 // Commands that look at a file without printing what is in it.

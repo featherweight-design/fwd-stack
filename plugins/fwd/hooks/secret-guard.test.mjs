@@ -344,6 +344,11 @@ const ALLOW = [
   'test -e .worktrees/x/apps/api/.env.local',
   'ls -d .worktrees/x/apps/api/.env.local',
   'ls -d .worktrees/*/apps/api/.env.local',
+  // a folder-segment glob counts only when it can reach a dotted login folder
+  'cat packages/*/config.json',
+  'cat apps/*/credentials',
+  'git commit -m "fix(secret-guard): handle {} and (x) in prose"',
+  'echo x | xargs -I{} echo {}',
   'gh pr view 1 --json state',
   'docker compose up -d',
   'echo $((1 + 2))',
@@ -540,7 +545,18 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     // a glob in a folder segment
     'cat ~/.a*/credentials',
     'cat ~/.aw?/*',
-    'cat ~/*/credentials',
+    // dot and dot-dot segments, brace lists and glob groups that name the file indirectly
+    'cat ~/.aws/./credentials',
+    'cat ~/.aws/x/../credentials',
+    'cat ~/.netrc{,}',
+    'cat ~/.aws/{credentials,x}',
+    'cat ~/.aws/(credentials)',
+    'cat ~/.aws/@(credentials)',
+    'cat ~/.aws/+(credentials)',
+    'cat ~/.aws/(c)redentials',
+    'cat ~/@(.netrc)',
+    'cat ~/+(.netrc)',
+    'cat ~/{.aws,x}/credentials',
     // dotfile globbing turned on, however it is spelled
     'unsetopt no_glob_dots; cat ~/.claude/*',
     'unsetopt noglobdots; cat ~/.claude/*',
