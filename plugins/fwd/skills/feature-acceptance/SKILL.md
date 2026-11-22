@@ -112,7 +112,7 @@ closer at one cell, downscale it first (`sips -Z 1200 -s format jpeg -s formatOp
 The same holds for any screenshot an agent reads, a probe's or a sweep's.
 
 **Where it points.** The base is `--base`, else `CONTACT_SHEET_BASE`, else
-`featureAcceptance.baseUrl`.
+`featureAcceptance.baseUrl`. A loading marker is polled up to 15s for a cold dev server to settle (`--loading-timeout <seconds>`, max 120), and must stay hidden on two polls in a row, then the cell fails. A marker that stays visible (a persistent `aria-busy`) makes each failing cell wait the full timeout; `--loading-timeout 0` turns the wait off.
 
 - **Before the PR opens: the lane's local dev server** (`pnpm dev`, http://localhost:<port>).
   Previews are off and staging only gets main after merge, so before a PR exists the change runs
