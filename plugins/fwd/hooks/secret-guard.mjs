@@ -406,10 +406,15 @@ function shellGlobMatch(seg, name) {
 // can be complete. The cost is a false positive on a folder glob over a plain `config.json`.
 const folderMatch = shellGlobMatch;
 let cwdNow = null; // the caller's working directory, for a relative path
+let oldDir = null; // the directory before the last `cd`: `cd -`, `$OLDPWD`, `~-`
+const OLDPWD_WORD = /^(\$\{oldpwd\}|\$oldpwd|~-)(?=\/|$)/i;
+const expandOld = (raw) =>
+  oldDir === null ? raw : raw.replace(OLDPWD_WORD, oldDir);
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
     .replace(/^@/, '')
     .replace(/^--?[A-Za-z][\w-]*=/, '');
+  raw = expandOld(raw);
   // A relative name typed from inside the folder (`cat credentials` in ~/.aws) still names the file.
   if (cwd && !/^[/~$]/.test(raw)) raw = `${cwd}/${raw}`;
   const path = raw.toLowerCase();
@@ -914,13 +919,14 @@ const NAMES_SINKS = new Set(['wc', 'head', 'tail', 'uniq', 'cut', 'tr']);
 const FIND_ACTIONS =
   /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/;
 // Any single-dash cluster with x or X (`-Hx`, `-HX`, `-Ix`) or --exec / --exec-batch, with or without `=`.
-const FD_ACTIONS = /^(-[A-Za-z0-9]*[xX][A-Za-z0-9]*|--exec(-batch)?(=.*)?)$/;
+// No tail anchor: the command can be attached (`-x/bin/cat`, `-Hx/bin/cat`).
+const FD_ACTIONS = /^(-[A-Za-z0-9]*[xX]|--exec)/;
 // A word as path parts: `~`, `$HOME` and `/Users/<name>` are one home marker; `.` and `..` resolve.
 function pathParts(word) {
   let raw = String(word)
     .replace(/^@/, '')
-    .replace(/^--?[A-Za-z][\w-]*=/, '')
-    .toLowerCase();
+    .replace(/^--?[A-Za-z][\w-]*=/, '');
+  raw = expandOld(raw).toLowerCase();
   if (cwdNow && !/^[/~$]/.test(raw)) raw = `${cwdNow.toLowerCase()}/${raw}`;
   raw = raw.replace(/^(\$\{home\}|\$home)(?=\/|$)/, '~');
   const parts = [];
@@ -1329,8 +1335,10 @@ function judgeSegment(seg, depth) {
   }
 }
 // The working directory after `cd dir` (or `env -C dir`), so a later relative word resolves there.
-const enterDir = (dir) =>
-  /^[/~$]/.test(dir) || !cwdNow ? dir : `${cwdNow}/${dir}`;
+const enterDir = (dir) => {
+  dir = expandOld(dir);
+  return /^[/~$]/.test(dir) || !cwdNow ? dir : `${cwdNow}/${dir}`;
+};
 function judgeUnwrapped(seg, depth, unwrapped) {
   if (unwrapped.skip) return null;
   if (unwrapped.envDump)
@@ -1417,30 +1425,50 @@ function judge(command, depth = 0) {
     )
   )
     return `turning on dotfile globbing (dotglob, glob_dots, GLOBIGNORE, BASHOPTS, a (D) qualifier) while a command names a glob or a stored login folder lets a glob expand to the login file. Name the file literally. ${SAFE_CRED}`;
-  // `cd dir && cmd .`: track the directory a `cd` enters, for the words that follow it.
-  const saved = cwdNow;
+  // `cd dir && cmd .`: track the directory a `cd` enters, for the words that follow it, and the
+  // one before it (`cd -`, `popd`, `$OLDPWD`, `~-`). When a return cannot be resolved the
+  // directory is unknown, so a command that went into a login folder (or a parent of one) earlier
+  // is refused: the guard cannot tell where it landed.
+  const saved = [cwdNow, oldDir];
+  const stack = [];
+  let visitedLogin = false;
+  const lost = `returning with \`cd -\`, popd, $OLDPWD or ~- after going into a folder that holds a stored login (or a parent of one) lands somewhere the guard cannot resolve. Name the file by its full path. ${SAFE_CRED}`;
   try {
     for (const seg of segs) {
+      if (
+        oldDir === null &&
+        visitedLogin &&
+        seg.words.some((w) => /\$\{?oldpwd\}?|(^|[=:])~-(\/|$)/i.test(w))
+      )
+        return lost;
       const reason = judgeSegment(seg, depth);
       if (reason) return reason;
       const w = unwrap(seg.words).words ?? [];
-      if (['cd', 'pushd'].includes(basename(w[0] ?? ''))) {
-        const dir = w.slice(1).find((a) => !isOption(a));
-        if (dir === undefined) cwdNow = '~';
-        else if (dir !== '-') cwdNow = enterDir(dir);
+      const cmd = basename(w[0] ?? '');
+      const dir = w.slice(1).find((x) => !isOption(x));
+      if (cmd === 'popd') {
+        oldDir = cwdNow;
+        cwdNow = stack.pop() ?? null;
+        if (cwdNow === null && visitedLogin) return lost;
+      } else if (cmd === 'cd' || cmd === 'pushd') {
+        if (cmd === 'pushd') stack.push(cwdNow);
+        if (cmd === 'cd' && dir === '-') {
+          [cwdNow, oldDir] = [oldDir, cwdNow];
+          if (cwdNow === null && visitedLogin) return lost;
+        } else {
+          const next = dir === undefined ? '~' : enterDir(dir);
+          if (folderHit(next) || isAncestor(next)) visitedLogin = true;
+          oldDir = cwdNow;
+          cwdNow = next;
+        }
       }
     }
     return null;
   } finally {
-    cwdNow = saved;
+    [cwdNow, oldDir] = saved;
   }
 }
 
-// Returns a denial reason, or null when the command is allowed.
-// `options.hasEnvFile(dir)` lets the caller say whether a folder holds a .env file (true or
-// false), or null when it cannot tell.
-// `options.hasCredentialFile(dir)` says the same for a stored login file, and `options.cwd` is
-// the folder a relative path is read from.
 export function secretDecision(command, options = {}) {
   if (typeof command !== 'string' || !command.trim()) return null;
   envProbe = options.hasEnvFile ?? null;
@@ -1454,5 +1482,6 @@ export function secretDecision(command, options = {}) {
     envProbe = null;
     credentialProbe = null;
     cwdNow = null;
+    oldDir = null;
   }
 }
