@@ -10,7 +10,7 @@ Update it in the same PR that adds, moves, renames or removes a secret.
 - **Vercel:** the project name and each environment it is set in (Production, Preview,
   Development). Say whether it is marked Sensitive.
 - **GitHub Actions:** a repository secret or a repository variable, and the workflow that reads it.
-- **Local:** `.env.local` on a developer's machine. Never committed.
+- **Local:** `.env.local` on a developer's machine, for development values. Never committed. Reusable production secrets go in the macOS login Keychain, not a file or a shell profile (see the infra-setup skill, "Local secret store"). Name the Keychain item here.
 
 ## Inventory
 

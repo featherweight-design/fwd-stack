@@ -20,11 +20,21 @@ Use it two ways:
 
 ## Secrets: the rule that governs everything below
 
-- [ ] **The owner creates and sets every sensitive value by hand (owner).** That covers API keys, DSNs that are secret, webhook secrets, database URLs and auth tokens. An agent gives exactly three things per variable: its **name**, its **scope** (which project, and Production / Preview / Development) and whether it is **Sensitive**. An agent never routes a value through a file, a chat, a commit or `.env`.
+- [ ] **The owner creates and sets every sensitive value by hand (owner).** That covers API keys, DSNs that are secret, webhook secrets, database URLs and auth tokens. An agent gives exactly three things per variable: its **name**, its **scope** (which project, and Production / Preview / Development) and whether it is **Sensitive**. An agent never routes a value through a file, a chat, a commit or `.env`. The owner's own local copy of a reusable production secret goes in the Keychain (see [Local secret store](#local-secret-store)).
       _Why:_ a value that passes through an agent's context or a file can leak through logs, transcripts or a commit, and the owner then has no record of where it went.
 - [ ] **Scope is part of the value.** A variable that only production builds read goes in **Production scope alone**. A copy scoped to Preview is inert.
       _Why:_ a migration URL re-scoped to Preview can break production deploys for hours. The variable existed, but nothing read it from there.
 - [ ] **Mark it Sensitive unless the browser needs it.** A `NEXT_PUBLIC_*` value is inlined into the bundle, and marking it Sensitive breaks that inlining.
+
+## Local secret store
+
+Vercel Sensitive variables cannot be read back, so an owner who needs a reusable production secret on their own machine (a migration URL, an admin token) needs a local copy. It lives in the macOS login Keychain. It does not live in a shell-profile export (`.zshrc` and similar), because every process inherits those, agent sessions included. It does not live in a `.env` file or a password manager either.
+
+- [ ] **Store it without echo or shell history (owner).** `security add-generic-password -U -a "$USER" -s <app>-prod-<name> -T ""`. With no value given, it prompts twice. To generate the value instead, append `-w "$(openssl rand -hex 32)"`. To copy it out for the hosting dashboard: `security find-generic-password -s <app>-prod-<name> -w | pbcopy`.
+- [ ] **Keep `-T ""`.** It trusts no app, so every read shows a macOS dialog the owner approves with **Allow**, never **Always Allow**. An agent cannot read a value silently.
+- [ ] **Use it inline, one command at a time,** from a checkout with no `.env` setting that variable: `NAME="$(security find-generic-password -s <app>-prod-<name> -w)" pnpm <script>`. If the repo's script env loader uses dotenv `override: true`, a `.env` value beats the shell, so check the loader first.
+- [ ] **An agent never runs the read command for the owner,** and never asks the owner to paste a value into chat. The kit's secret-guard hook already denies `security find-generic-password -w` and `-g`; leave it as it is.
+      _Why:_ the dialog is the only gate between a stored secret and an agent session. Skipping it, or widening trust with Always Allow, removes the one check the owner controls.
 
 ## Neon (Postgres)
 
