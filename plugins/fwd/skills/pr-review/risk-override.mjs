@@ -24,17 +24,54 @@ const MIGRATION_SCHEMA = /(^|\/)(drizzle|migrations?|prisma|schemas?)(\/|\.)/i;
 const DB_LAYER = /(^|\/)db(\/|\.)/i;
 const AUTH_SESSION =
   /(^|\/)(auth|oauth|session)(\/|[-_.])|(^|\/)(proxy|middleware)\.[jt]s$/i;
-// A `tokens` segment is security code UNLESS it is a design-token file: a stylesheet or data file
-// (css, scss, sass, less, json) at or under a `tokens` folder, or named `tokens.<ext>`, with no
-// auth, api, server, session, security or secret folder above it. Code files (ts, js, ...) named
-// `tokens` stay risky, as does anything ambiguous.
-const DESIGN_TOKEN_REST = String.raw`(?:\/.*)?\.(?:css|scss|sass|less|json)$`;
-const UNDER_SERVER_DIR = String.raw`(?<=(?:^|\/)(?:auth|oauth|session|api|server|security|secrets?)\/(?:.*\/)?)`;
-const SECURITY = new RegExp(
-  String.raw`(^|\/)(security|crypto|secrets?|passwords?|csrf|jwt|encrypt\w*|(?:${UNDER_SERVER_DIR}tokens?|tokens?(?!${DESIGN_TOKEN_REST})))(\/|[-_.])` +
-    String.raw`|(^|\/)[^/]*[-_.]tokens?\.[cm]?[jt]sx?$`,
-  'i',
-);
+// ---- design tokens ---------------------------------------------------------------
+// `token(s)` reads as auth code, but a design system's token files (colors, spacing) are not. An
+// ALLOW-list decides which are: anything it does not clearly recognise stays risky.
+const AUTHISH_SEGMENT =
+  /^(auth|oauth|session|api|server|security|secrets?|crypto|admin|jwt|csrf|passwords?|encrypt\w*)([-_.].*)?$/i;
+const DESIGN_SEGMENTS = new Set([
+  'design',
+  'styles',
+  'theme',
+  'themes',
+  'brand',
+]);
+const CODE_DESIGN_SEGMENTS = new Set(['design', 'styles', 'theme', 'themes']);
+const STYLESHEET = /^(css|scss|sass|less)$/;
+const CODE = /^([cm]?[jt]sx?)$/;
+const TOKENS_NAME = /^(.*[-_.])?tokens\.[a-z0-9]+$/i;
+
+/**
+ * True only for a design-token file. No auth-ish folder or name (AUTHISH_SEGMENT) may appear
+ * anywhere in the path. Then, with `tokens` as a folder or the file named `tokens.<ext>` /
+ * `*-tokens.<ext>` / `*.tokens.<ext>`: a stylesheet (css, scss, sass, less) qualifies; a JSON file
+ * needs a design, styles, theme or brand segment; a js/ts file needs a design, styles or theme one.
+ */
+export const isDesignTokenFile = (path) => {
+  const segs = path.toLowerCase().split('/');
+  const name = segs.pop();
+  if ([...segs, name].some((s) => AUTHISH_SEGMENT.test(s))) return false;
+  const tokenish = segs.includes('tokens') || TOKENS_NAME.test(name);
+  if (!tokenish) return false;
+  const parts = [...segs, ...name.split('.')];
+  const ext = name.includes('.') ? name.split('.').pop() : '';
+  if (STYLESHEET.test(ext)) return true;
+  if (ext === 'json') return parts.some((s) => DESIGN_SEGMENTS.has(s));
+  if (CODE.test(ext)) return parts.some((s) => CODE_DESIGN_SEGMENTS.has(s));
+  return false;
+};
+
+const SECURITY_DIR =
+  /(^|\/)(security|crypto|tokens?|secrets?|passwords?|csrf|jwt|encrypt\w*)(\/|[-_.])/i;
+// Token code files by suffix: `refresh-token.ts`, `refresh_token.py`, `refreshToken.ts`. Case
+// sensitive on purpose, so the camelCase `[a-z]Token` form does not match `retoken.ts`.
+const SECURITY_SUFFIX =
+  /(^|\/)[^/]*(?:[-_.][Tt]|[a-z]T)okens?\.(?:[cm]?[jt]sx?|py|go|rb|rs|java|kt|php)$/;
+// Checked after the design-token allow-list, so one design token cannot make a PR risky.
+const SECURITY = {
+  test: (p) =>
+    (SECURITY_DIR.test(p) || SECURITY_SUFFIX.test(p)) && !isDesignTokenFile(p),
+};
 const PAYMENTS = /(^|\/)(billing|payments?|credits?|stripe)(\/|[-_.])/i;
 const WEBHOOKS = /(^|\/)webhooks?(\/|[-_.])/i;
 // API and cron route handlers: an `api/` tree, a `routes/` or `cron/` folder, or a Next.js
@@ -42,20 +79,15 @@ const WEBHOOKS = /(^|\/)webhooks?(\/|[-_.])/i;
 const ROUTES =
   /(^|\/)(app|pages)\/api\/|(^|\/)(routes?|crons?)\/|(^|\/)route\.[cm]?[jt]s$/i;
 
-export const RISKY_PATH = new RegExp(
-  [
-    MIGRATION_SCHEMA,
-    DB_LAYER,
-    AUTH_SESSION,
-    SECURITY,
-    PAYMENTS,
-    WEBHOOKS,
-    ROUTES,
-  ]
+const OTHER_RISKY = new RegExp(
+  [MIGRATION_SCHEMA, DB_LAYER, AUTH_SESSION, PAYMENTS, WEBHOOKS, ROUTES]
     .map((r) => r.source)
     .join('|'),
   'i',
 );
+export const RISKY_PATH = {
+  test: (p) => OTHER_RISKY.test(p) || SECURITY.test(p),
+};
 
 /**
  * The risky runtime paths among a PR's files: each `{ filename, previous_filename? }` (a rename OUT
