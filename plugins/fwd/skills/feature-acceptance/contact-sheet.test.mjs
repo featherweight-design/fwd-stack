@@ -8,6 +8,9 @@ import {
   applyTheme,
   cellNote,
   checkLoaded,
+  parseLoadingTimeout,
+  LOADING_WAIT_MS,
+  LOADING_WAIT_MAX_MS,
   waitForImages,
   IMAGE_WAIT_MS,
   checkTheme,
@@ -382,8 +385,11 @@ test('checkLoaded: a marker that clears after a delay passes', async () => {
       first: () => ({ isVisible: async () => ++polls <= 3 }),
     }),
   };
-  await checkLoaded(page, ['.skeleton'], { timeout: 1000, interval: 5 });
-  assert.equal(polls, 4);
+  const started = Date.now();
+  await checkLoaded(page, ['.skeleton'], { timeout: 1000, interval: 20 });
+  // 3 visible polls, then 2 hidden ones; each gap is one interval.
+  assert.equal(polls, 5);
+  assert.ok(Date.now() - started >= 20, 'it waited at least one poll gap');
 });
 
 test('checkLoaded: a marker that never clears throws after the timeout, naming it', async () => {
@@ -400,6 +406,77 @@ test('checkLoaded: a marker that never clears throws after the timeout, naming i
   );
   assert.ok(polls > 1, 'it polled before giving up');
   assert.ok(Date.now() - started >= 60);
+});
+
+test('checkLoaded: a marker that clears and reappears does not pass', async () => {
+  const states = [false, true, false, false];
+  let i = 0;
+  const page = {
+    locator: () => ({
+      first: () => ({ isVisible: async () => states[Math.min(i++, 3)] }),
+    }),
+  };
+  await checkLoaded(page, ['.skeleton'], { timeout: 1000, interval: 5 });
+  assert.equal(i, 4, 'the flash reset the count of hidden polls');
+});
+
+test('checkLoaded: markers share one deadline, and an early clear costs nothing', async () => {
+  const hiddenAt = { '.a': 0, '.b': Infinity };
+  const start = Date.now();
+  const page = {
+    locator: (sel) => ({
+      first: () => ({
+        isVisible: async () => Date.now() - start < hiddenAt[sel],
+      }),
+    }),
+  };
+  await assert.rejects(
+    checkLoaded(page, ['.a', '.b'], { timeout: 80, interval: 5 }),
+    /still loading: \.b is visible/,
+  );
+  assert.ok(Date.now() - start < 80 * 2, 'two markers did not double the wait');
+});
+
+test('checkLoaded: the default is 15s, the cap 120s, and bad timeouts never loop forever', async () => {
+  assert.equal(LOADING_WAIT_MS, 15000);
+  assert.equal(LOADING_WAIT_MAX_MS, 120000);
+  const page = {
+    locator: () => ({ first: () => ({ isVisible: async () => false }) }),
+  };
+  for (const timeout of [NaN, Infinity, -5])
+    await checkLoaded(page, ['.s'], { timeout, interval: 1 });
+  const busy = {
+    locator: () => ({ first: () => ({ isVisible: async () => true }) }),
+  };
+  await assert.rejects(
+    checkLoaded(busy, ['.s'], { timeout: 0, interval: 1 }),
+    /still loading/,
+  );
+});
+
+test('checkLoaded: a closed page fails naming the loading check; a bad selector does not', async () => {
+  const page = {
+    locator: () => ({
+      first: () => ({
+        isVisible: async () => {
+          throw new Error('Target page, context or browser has been closed');
+        },
+      }),
+    }),
+  };
+  await assert.rejects(
+    checkLoaded(page, ['.s'], { timeout: 50, interval: 1 }),
+    /loading check: the page closed/,
+  );
+});
+
+test('parseLoadingTimeout: plain seconds only, capped', () => {
+  assert.equal(parseLoadingTimeout('30'), 30000);
+  assert.equal(parseLoadingTimeout('2.5'), 2500);
+  assert.equal(parseLoadingTimeout('0'), 0);
+  assert.equal(parseLoadingTimeout('9999'), LOADING_WAIT_MAX_MS);
+  for (const bad of ['', '0x10', '1e3', '-1', '1.', 'abc', ' 5'])
+    assert.throws(() => parseLoadingTimeout(bad), /--loading-timeout/);
 });
 
 test('waitForImages: waits only for images the shot shows, tallies loading and broken, and surfaces real errors', async () => {

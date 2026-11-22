@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // The contact sheet: every route a feature touches, at every width, in one image.
 //
-//   node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> [--base URL] [--root DIR]
+//   node ~/.claude/fwd/skills/feature-acceptance/contact-sheet.mjs <inventory.json> [--base URL] [--root DIR] [--loading-timeout SECONDS]
+//
+// --loading-timeout: how long each cell waits for loading markers to clear (default 15, max 120).
+// A marker that stays visible makes every failing cell wait the full timeout; 0 turns the wait off.
 //
 // NOT a probe. A probe asserts what its author believed; this asserts nothing about the pixels. It
 // loads each surface, photographs it, and lays the photographs out so a person sees in one glance
@@ -295,34 +298,75 @@ export const DEFAULT_LOADING = ['[aria-busy="true"]'];
 
 /** How long a cell waits for its loading markers to clear (a cold dev server compiles slowly). */
 export const LOADING_WAIT_MS = 15000;
+/** The longest wait a caller can ask for. */
+export const LOADING_WAIT_MAX_MS = 120000;
 const LOADING_POLL_MS = 250;
+/** Consecutive polls with every marker hidden before a page counts as settled. */
+const SETTLED_POLLS = 2;
+
+/** `--loading-timeout` seconds as milliseconds. Only plain decimals: not '', '0x10' or '1e3'. */
+export function parseLoadingTimeout(raw) {
+  if (typeof raw !== 'string' || !/^\d+(\.\d+)?$/.test(raw))
+    throw new SetupError(
+      `--loading-timeout takes seconds as a plain number such as 30 or 2.5, not "${raw}"`,
+    );
+  return Math.min(Number(raw) * 1000, LOADING_WAIT_MAX_MS);
+}
+
+const PAGE_GONE =
+  /has been closed|target closed|context was destroyed|browser closed/i;
 
 /**
  * Fails the cell when a loading marker is still visible after the row's steps: a cell that
- * photographs a skeleton has no evidence in it, and its wait passing does not make it real. A
- * marker is polled until it clears, up to `timeout` ms, so a cold-compiling page can settle; one
- * that never clears still fails, naming the marker.
+ * photographs a skeleton has no evidence in it, and its wait passing does not make it real.
+ *
+ * Rule: every marker is polled in the same pass against ONE deadline (`timeout` ms in all, so a
+ * marker that clears early costs nothing), and the page counts as settled only after every marker
+ * is hidden on 2 consecutive polls, so a skeleton flashing between fetches does not pass. A
+ * timeout of 0 checks once and does not wait. After the deadline the first visible marker is
+ * named. A non-finite or negative `timeout` becomes the default; it is capped at 120s. A closed or
+ * navigated-away page fails naming this check; any other visibility error (a bad selector) counts
+ * as not visible.
  */
 export async function checkLoaded(
   page,
   markers,
   { timeout = LOADING_WAIT_MS, interval = LOADING_POLL_MS } = {},
 ) {
-  const deadline = Date.now() + timeout;
-  for (const marker of markers) {
-    const visible = () =>
-      page
-        .locator(marker)
-        .first()
-        .isVisible()
-        .catch(() => false);
-    while (await visible()) {
+  const wait =
+    Number.isFinite(timeout) && timeout >= 0 ? timeout : LOADING_WAIT_MS;
+  const deadline = Date.now() + Math.min(wait, LOADING_WAIT_MAX_MS);
+  const firstVisible = async () => {
+    const seen = await Promise.all(
+      markers.map((marker) =>
+        page
+          .locator(marker)
+          .first()
+          .isVisible()
+          .catch((error) => {
+            if (PAGE_GONE.test(String(error?.message)))
+              throw new Error(
+                `loading check: the page closed or navigated away while waiting for ${marker} to clear`,
+              );
+            return false;
+          }),
+      ),
+    );
+    return markers.find((_, i) => seen[i]);
+  };
+  let hidden = 0;
+  for (;;) {
+    const marker = await firstVisible();
+    if (marker === undefined) {
+      if (wait === 0 || ++hidden >= SETTLED_POLLS) return;
+    } else {
+      hidden = 0;
       if (Date.now() >= deadline)
         throw new Error(
           `still loading: ${marker} is visible after the steps; wait for the content`,
         );
-      await new Promise((resolve) => setTimeout(resolve, interval));
     }
+    await new Promise((resolve) => setTimeout(resolve, interval));
   }
 }
 
@@ -472,9 +516,7 @@ async function photograph() {
   const loadingTimeout =
     flags['loading-timeout'] === undefined
       ? LOADING_WAIT_MS
-      : Number(flags['loading-timeout']) * 1000;
-  if (!Number.isFinite(loadingTimeout) || loadingTimeout < 0)
-    throw new SetupError('--loading-timeout takes seconds, such as 30');
+      : parseLoadingTimeout(flags['loading-timeout']);
   if (
     !Array.isArray(loading) ||
     loading.some((m) => typeof m !== 'string' || !m)
