@@ -226,6 +226,20 @@ shell a step must avoid, and where the contact sheet goes in a PR.
 | `tokens.hex`      | check-tokens                | Globs of component folders to report hex colours in.                                                                                                                                   |
 | `tokens.hexFails` | check-tokens                | `true` to fail on a hex colour rather than report it.                                                                                                                                  |
 
+**Signed-in routes need the development env.** A project with signed-in routes states in
+`.claude/fwd/feature-acceptance.md` whether lanes may run the app with the development env in
+their worktree (the env file's name, never its values).
+
+- If they may, the user's yes is recorded there once, in the project's own file, so no per-lane
+  ruling is needed.
+- If they may not, the signed-in shots are a user step marked "(you)", or are made by a session
+  the user runs with the env. The PR is held for that step, not blocked silently.
+- If the project has not stated it, the orchestrator raises it with the user as a setup task the
+  first time it comes up, in this form: "may lanes use the development env in their worktree?"
+  Once, six built PRs sat on hold because the answer lived in a relayed message.
+
+The kit adds no script that copies or links env files.
+
 The project installs Playwright (and its Chromium) and TypeScript itself; the kit adds no
 dependency. The sign-in module reads its credentials from the environment and never prints them.
 
