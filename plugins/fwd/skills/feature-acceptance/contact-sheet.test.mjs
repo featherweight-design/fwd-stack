@@ -368,9 +368,38 @@ test('checkLoaded: a visible loading marker fails the cell; a hidden or absent o
   await checkLoaded(page([]), []);
   await checkLoaded(page([]), ['.broken']);
   await assert.rejects(
-    checkLoaded(page(['.skeleton']), ['[aria-busy="true"]', '.skeleton']),
+    checkLoaded(page(['.skeleton']), ['[aria-busy="true"]', '.skeleton'], {
+      timeout: 0,
+    }),
     /still loading: \.skeleton is visible/,
   );
+});
+
+test('checkLoaded: a marker that clears after a delay passes', async () => {
+  let polls = 0;
+  const page = {
+    locator: () => ({
+      first: () => ({ isVisible: async () => ++polls <= 3 }),
+    }),
+  };
+  await checkLoaded(page, ['.skeleton'], { timeout: 1000, interval: 5 });
+  assert.equal(polls, 4);
+});
+
+test('checkLoaded: a marker that never clears throws after the timeout, naming it', async () => {
+  let polls = 0;
+  const page = {
+    locator: () => ({
+      first: () => ({ isVisible: async () => (polls++, true) }),
+    }),
+  };
+  const started = Date.now();
+  await assert.rejects(
+    checkLoaded(page, ['.skeleton'], { timeout: 60, interval: 5 }),
+    /still loading: \.skeleton is visible/,
+  );
+  assert.ok(polls > 1, 'it polled before giving up');
+  assert.ok(Date.now() - started >= 60);
 });
 
 test('waitForImages: waits only for images the shot shows, tallies loading and broken, and surfaces real errors', async () => {

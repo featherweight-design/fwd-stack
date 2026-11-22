@@ -293,22 +293,37 @@ export async function checkTheme(page, theme) {
 /** What a page still loading shows, unless featureAcceptance.loading names the project's own. */
 export const DEFAULT_LOADING = ['[aria-busy="true"]'];
 
+/** How long a cell waits for its loading markers to clear (a cold dev server compiles slowly). */
+export const LOADING_WAIT_MS = 15000;
+const LOADING_POLL_MS = 250;
+
 /**
  * Fails the cell when a loading marker is still visible after the row's steps: a cell that
- * photographs a skeleton has no evidence in it, and its wait passing does not make it real.
+ * photographs a skeleton has no evidence in it, and its wait passing does not make it real. A
+ * marker is polled until it clears, up to `timeout` ms, so a cold-compiling page can settle; one
+ * that never clears still fails, naming the marker.
  */
-export async function checkLoaded(page, markers) {
-  for (const marker of markers)
-    if (
-      await page
+export async function checkLoaded(
+  page,
+  markers,
+  { timeout = LOADING_WAIT_MS, interval = LOADING_POLL_MS } = {},
+) {
+  const deadline = Date.now() + timeout;
+  for (const marker of markers) {
+    const visible = () =>
+      page
         .locator(marker)
         .first()
         .isVisible()
-        .catch(() => false)
-    )
-      throw new Error(
-        `still loading: ${marker} is visible after the steps; wait for the content`,
-      );
+        .catch(() => false);
+    while (await visible()) {
+      if (Date.now() >= deadline)
+        throw new Error(
+          `still loading: ${marker} is visible after the steps; wait for the content`,
+        );
+      await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+  }
 }
 
 /** How long a cell waits for its images before it is photographed anyway. */
@@ -403,7 +418,7 @@ async function main() {
 async function photograph() {
   const say = (text) => console.log(text);
   const { flags, positional } = parseArgs(process.argv.slice(2), {
-    valued: ['root', 'base'],
+    valued: ['root', 'base', 'loading-timeout'],
   });
   const root = projectRoot(flags);
   const inventoryPath = positional[0];
@@ -454,6 +469,12 @@ async function photograph() {
     );
   const scope = cfg.pageScope ?? 'main';
   const loading = cfg.loading ?? DEFAULT_LOADING;
+  const loadingTimeout =
+    flags['loading-timeout'] === undefined
+      ? LOADING_WAIT_MS
+      : Number(flags['loading-timeout']) * 1000;
+  if (!Number.isFinite(loadingTimeout) || loadingTimeout < 0)
+    throw new SetupError('--loading-timeout takes seconds, such as 30');
   if (
     !Array.isArray(loading) ||
     loading.some((m) => typeof m !== 'string' || !m)
@@ -547,7 +568,7 @@ async function photograph() {
               for (const step of row.steps)
                 await runStep(page, step, { base, scope });
               await checkTheme(page, theme);
-              await checkLoaded(page, loading);
+              await checkLoaded(page, loading, { timeout: loadingTimeout });
               const fullPage = row.fullPage ?? inventory.fullPage ?? false;
               const images = await waitForImages(page, { fullPage });
               const missing = [
