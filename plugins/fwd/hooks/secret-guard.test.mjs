@@ -326,7 +326,7 @@ const ALLOW = [
   'pnpm format:check && pnpm typecheck && pnpm lint',
   'git status',
   'ls -la',
-  // existence tests that print nothing from the file
+  // existence tests that print nothing from the file (these were already allowed; they pin it)
   'test -e .worktrees/*/apps/api/.env.local',
   'test -f x/.env.local && echo present || echo absent',
   'test -s x/.env.local',
@@ -340,6 +340,9 @@ const ALLOW = [
   'ls -la .worktrees/*/apps/api/.env.local',
   'stat x/.env.local',
   'if [ -e x/.env.local ]; then echo present; fi',
+  // This exact loop was denied before this PR: the stored-login matcher read the folder glob
+  // `.worktrees/*` as a possible credential file name. A `for` word list only names what the
+  // glob expands to, so the shell's no-leading-dot rule applies there (names only).
   'for d in .worktrees/*; do [ -e $d/apps/api/.env.local ] && echo $d; done',
   'for d in .worktrees/*; do echo $d; done',
   'gh pr view 1 --json state',
@@ -520,6 +523,24 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'cat ~/.claude/.*.json',
     'cat ~/.claude/.*',
     'for f in ~/.claude/.cred*; do cat $f; done',
+    // a bare glob may expand to a dotfile, so any command that can read content is denied
+    'cat ~/.claude/*',
+    'cat ~/.claude/?credentials.json',
+    'cat ~/.claude/*credentials*',
+    'cat ~/.claude/[.]credentials.json',
+    'cat ~/.claude/[!x]*',
+    'cat ~/.claude/[^x]*',
+    'cat ~/.claude/[.]*',
+    // dotfile globbing turned on: denied even for a names-only use of the glob
+    'shopt -s dotglob; cat ~/.claude/*',
+    'shopt -s nullglob dotglob; cat ~/.claude/*',
+    'setopt glob_dots; cat ~/.claude/*',
+    'setopt GLOBDOTS; cat ~/.claude/*',
+    'GLOBIGNORE=x; cat ~/.claude/*',
+    'cat ~/.claude/*(D)',
+    'cat ~/.claude/*(.D)',
+    'shopt -s dotglob; for d in ~/.claude/*; do echo $d; done',
+    'bash -c "shopt -s dotglob; cat ~/.claude/*"',
     'cat ~/.aws/credentials',
     'cat ~/.config/gh/hosts.yml',
     'cat ~/.netrc',

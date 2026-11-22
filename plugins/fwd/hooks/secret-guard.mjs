@@ -348,22 +348,26 @@ const CREDENTIAL_TAILS = [
   ['gh', 'hosts.yml'],
   ['.docker', 'config.json'],
 ];
-const globRe = (seg) =>
-  new RegExp(
-    `^${seg
-      .replace(/[.+^${}()|\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')}$`,
-  );
-// A shell glob never matches a leading dot unless the pattern spells it, so `*` cannot expand to a
-// dotfile such as `.netrc`: `for d in .worktrees/*` names a folder listing, not a stored login.
-const segMatches = (seg, name) =>
-  seg === name ||
-  (/[*?]/.test(seg) &&
-    !(name.startsWith('.') && !seg.startsWith('.')) &&
-    globRe(seg).test(name));
+// The one place shell glob semantics live. `seg` is a path segment from a command word, `name` a
+// credential file name. Conservative by default: a `*`, `?` or bracket expression may match a
+// dotfile, because dotglob (bash), glob_dots (zsh), GLOBIGNORE and the zsh `(D)` qualifier all
+// make a glob expand to one, and a command that reads content would then print the login.
+// Bracket expressions (`[.]x`, `[!x]*`, `[^x]*`) count as any one character. With `namesOnly` the
+// expansion is only listed or tested, never read, so the shell default applies: a leading dot
+// must be spelled out in the pattern.
+function shellGlobMatch(seg, name, { namesOnly = false } = {}) {
+  if (seg === name) return true;
+  if (!/[*?[]/.test(seg)) return false;
+  if (namesOnly && name.startsWith('.') && !seg.startsWith('.')) return false;
+  const re = seg
+    .replace(/\[[^\]]*\]/g, '?')
+    .replace(/[.+^${}()|\\[\]]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  return new RegExp(`^${re}$`).test(name);
+}
 let cwdNow = null; // the caller's working directory, for a relative path
-export function isCredentialFile(word, cwd = cwdNow) {
+export function isCredentialFile(word, cwd = cwdNow, opts = {}) {
   let raw = String(word)
     .replace(/^@/, '')
     .replace(/^--?[A-Za-z][\w-]*=/, '');
@@ -376,7 +380,9 @@ export function isCredentialFile(word, cwd = cwdNow) {
     const end = parts.slice(-tail.length);
     // Folders in the tail must match exactly; only the file name may be a glob.
     return tail.every((name, k) =>
-      k === tail.length - 1 ? segMatches(end[k], name) : end[k] === name,
+      k === tail.length - 1
+        ? shellGlobMatch(end[k], name, opts)
+        : end[k] === name,
     );
   });
 }
@@ -827,9 +833,16 @@ function dumpRule(name, args) {
 // or send its token (`cat`, `jq`, `openssl -in`, `curl -d @file`).
 function credentialRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
-  if (sources.some(isCredentialFile))
+  if (sources.some((t) => isCredentialFile(t)))
     return `feeding a stored login file into a command can print its token. ${SAFE_CRED}`;
-  if (!CREDENTIAL_SAFE.has(name) && args.some(isCredentialFile))
+  // `for VAR in <words>` only walks the names its glob expands to; the body is judged on its own.
+  const namesOnlyFrom = name === 'for' && args[1] === 'in' ? 2 : args.length;
+  if (
+    !CREDENTIAL_SAFE.has(name) &&
+    args.some((a, k) =>
+      isCredentialFile(a, undefined, { namesOnly: k >= namesOnlyFrom }),
+    )
+  )
     return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
   return null;
 }
@@ -1181,9 +1194,26 @@ function judgeSegment(seg, depth) {
   return null;
 }
 
+// Settings that make a glob's `*` expand to dotfiles: bash `shopt -s dotglob`, zsh `setopt
+// glob_dots` (underscores and case are ignored by zsh), `GLOBIGNORE=`, and the zsh `(D)` qualifier.
+const DOTGLOB_ON =
+  /\bshopt\s[^;&|\n]*\bdotglob\b|\bsetopt\s[^;&|\n]*glob_?dots\b|\bGLOBIGNORE=|[*?\]]\([^)\s]*D[^)\s]*\)/i;
+
 function judge(command, depth = 0) {
   if (depth > 8) return null;
-  for (const seg of parseCommands(command)) {
+  const segs = parseCommands(command);
+  // With dotfile globbing on, any glob over a login folder can expand to the login file, even
+  // where it is only listed, so refuse the combination outright.
+  if (
+    DOTGLOB_ON.test(command) &&
+    segs.some((seg) =>
+      [...seg.words, ...seg.redirects.map((r) => r.target)].some((w) =>
+        isCredentialFile(w),
+      ),
+    )
+  )
+    return `turning on dotfile globbing (dotglob, glob_dots, GLOBIGNORE, a (D) qualifier) while a command names a stored login folder lets a glob expand to the login file. ${SAFE_CRED}`;
+  for (const seg of segs) {
     const reason = judgeSegment(seg, depth);
     if (reason) return reason;
   }
