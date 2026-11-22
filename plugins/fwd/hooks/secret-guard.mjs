@@ -436,7 +436,6 @@ const CREDENTIAL_SAFE = new Set([
   'stat',
   'test',
   '[',
-  'file',
   'du',
   'chmod',
   'chown',
@@ -527,13 +526,14 @@ const KEYWORDS = new Set([
 // `command -v`, or { nested: string } for `env -S` and `watch`.
 export function unwrap(words) {
   let w = words.slice();
+  let chdir = null; // `env -C dir` / `env --chdir=dir`: the wrapped command runs there
   for (;;) {
     while (w.length && (isAssignment(w[0]) || KEYWORDS.has(w[0]))) {
       // `time -p cmd`
       if (w[0] === 'time' && w[1] === '-p') w.shift();
       w.shift();
     }
-    if (!w.length) return { words: w };
+    if (!w.length) return { words: w, chdir };
     const name = basename(w[0]);
     if (name === 'command') {
       const rest = w.slice(1);
@@ -561,6 +561,9 @@ export function unwrap(words) {
           return { nested: w.slice(k + 1).join(' ') };
         if (a.startsWith('--split-string=') || /^-[a-zA-Z]*S./.test(a))
           return { nested: a.replace(/^--split-string=|^-[a-zA-Z]*S/, '') };
+        if (/^-[a-zA-Z0-9]*C$/.test(a) || a === '--chdir')
+          chdir = w[k + 1] ?? chdir;
+        else if (a.startsWith('--chdir=')) chdir = a.slice(8);
         if (
           /^-[a-zA-Z0-9]*[uCP]$/.test(a) ||
           a === '--unset' ||
@@ -600,7 +603,7 @@ export function unwrap(words) {
       return { nested: w.slice(k).join(' ') };
     }
     const spec = WRAPPERS[name];
-    if (!spec) return { words: w };
+    if (!spec) return { words: w, chdir };
     const rest = w.slice(1);
     let k = 0;
     while (k < rest.length && isOption(rest[k])) {
@@ -879,7 +882,11 @@ function credentialRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
   if (sources.some((t) => isCredentialFile(t)))
     return `feeding a stored login file into a command can print its token. ${SAFE_CRED}`;
-  if (!CREDENTIAL_SAFE.has(name) && args.some((a) => isCredentialFile(a)))
+  // `du --files0-from` prints the lines of the file it is given, so it is not names-only.
+  const safe =
+    CREDENTIAL_SAFE.has(name) &&
+    !(name === 'du' && args.some((a) => /^--files0-from/.test(a)));
+  if (!safe && args.some((a) => isCredentialFile(a)))
     return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
   return null;
 }
@@ -898,34 +905,24 @@ const CREDENTIAL_FOLDERS = [
   { path: ['.config', 'gh'] },
   { path: ['.claude'], readersOnly: true },
 ];
-const NAMES_ONLY = new Set([...CREDENTIAL_SAFE, '[[']);
-const NAMES_SINKS = new Set([
-  'wc',
-  'sort',
-  'uniq',
-  'head',
-  'tail',
-  'grep',
-  'egrep',
-  'fgrep',
-  'rg',
-  'cut',
-  'tr',
-  'column',
-  'nl',
-  'cat',
-]);
+// `cd` prints nothing; the directories it enters are tracked by `judge` for later words.
+const NAMES_ONLY = new Set([...CREDENTIAL_SAFE, '[[', 'cd', 'pushd']);
+// Programs that only count, trim or cut the names a names-only command prints. None may read a
+// file list (`sort --files0-from=-` reads every file `find -print0` names), so `sort`, `grep`
+// and `cat` are not here.
+const NAMES_SINKS = new Set(['wc', 'head', 'tail', 'uniq', 'cut', 'tr']);
 const FIND_ACTIONS =
   /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/;
-const FD_ACTIONS = /^(-x|-X|--exec|--exec-batch|-x.+|-X.+|--exec=.*)$/;
+// Any single-dash cluster with x or X (`-Hx`, `-HX`, `-Ix`) or --exec / --exec-batch, with or without `=`.
+const FD_ACTIONS = /^(-[A-Za-z0-9]*[xX][A-Za-z0-9]*|--exec(-batch)?(=.*)?)$/;
 // A word as path parts: `~`, `$HOME` and `/Users/<name>` are one home marker; `.` and `..` resolve.
 function pathParts(word) {
   let raw = String(word)
     .replace(/^@/, '')
     .replace(/^--?[A-Za-z][\w-]*=/, '')
     .toLowerCase();
-  raw = raw.replace(/^(\$\{home\}|\$home)(?=\/|$)/, '~');
   if (cwdNow && !/^[/~$]/.test(raw)) raw = `${cwdNow.toLowerCase()}/${raw}`;
+  raw = raw.replace(/^(\$\{home\}|\$home)(?=\/|$)/, '~');
   const parts = [];
   for (const part of raw.split('/').filter(Boolean)) {
     if (part === '.') continue;
@@ -972,7 +969,12 @@ function isAncestor(word) {
 function namesOnly(name, args, seg) {
   if (seg.sub) return false;
   for (let p = seg.pipeTo; p; p = p.pipeTo)
-    if (!NAMES_SINKS.has(basename(p.words[0] ?? ''))) return false;
+    if (
+      !NAMES_SINKS.has(basename(p.words[0] ?? '')) ||
+      p.words.some((a) => /^--files0?-from/.test(a))
+    )
+      return false;
+  if (name === 'du' && args.some((a) => /^--files0-from/.test(a))) return false;
   if (name === 'find') return !args.some((a) => FIND_ACTIONS.test(a));
   if (name === 'fd' || name === 'fdfind')
     return !args.some((a) => FD_ACTIONS.test(a));
@@ -1317,6 +1319,19 @@ function reachesTerminal(seg) {
 
 function judgeSegment(seg, depth) {
   const unwrapped = unwrap(seg.words);
+  if (!unwrapped.chdir) return judgeUnwrapped(seg, depth, unwrapped);
+  const saved = cwdNow;
+  cwdNow = enterDir(unwrapped.chdir);
+  try {
+    return judgeUnwrapped(seg, depth, unwrapped);
+  } finally {
+    cwdNow = saved;
+  }
+}
+// The working directory after `cd dir` (or `env -C dir`), so a later relative word resolves there.
+const enterDir = (dir) =>
+  /^[/~$]/.test(dir) || !cwdNow ? dir : `${cwdNow}/${dir}`;
+function judgeUnwrapped(seg, depth, unwrapped) {
   if (unwrapped.skip) return null;
   if (unwrapped.envDump)
     return `\`env\` with no command prints every environment value, which can include secrets. ${SAFE_DUMP}`;
@@ -1402,11 +1417,23 @@ function judge(command, depth = 0) {
     )
   )
     return `turning on dotfile globbing (dotglob, glob_dots, GLOBIGNORE, BASHOPTS, a (D) qualifier) while a command names a glob or a stored login folder lets a glob expand to the login file. Name the file literally. ${SAFE_CRED}`;
-  for (const seg of segs) {
-    const reason = judgeSegment(seg, depth);
-    if (reason) return reason;
+  // `cd dir && cmd .`: track the directory a `cd` enters, for the words that follow it.
+  const saved = cwdNow;
+  try {
+    for (const seg of segs) {
+      const reason = judgeSegment(seg, depth);
+      if (reason) return reason;
+      const w = unwrap(seg.words).words ?? [];
+      if (['cd', 'pushd'].includes(basename(w[0] ?? ''))) {
+        const dir = w.slice(1).find((a) => !isOption(a));
+        if (dir === undefined) cwdNow = '~';
+        else if (dir !== '-') cwdNow = enterDir(dir);
+      }
+    }
+    return null;
+  } finally {
+    cwdNow = saved;
   }
-  return null;
 }
 
 // Returns a denial reason, or null when the command is allowed.
