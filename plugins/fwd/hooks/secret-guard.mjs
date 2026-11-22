@@ -138,7 +138,9 @@ class Parser {
         // Process substitution: its command runs, so parse it.
         endWord();
         this.i += 2;
+        const from = this.segments.length;
         this.sequence(true);
+        this.markSub(from);
         this.seg = seg;
         append(c === '<' ? '/dev/fd/63' : '/dev/fd/62');
       } else if (c === '<' || c === '>') {
@@ -289,7 +291,9 @@ class Parser {
     if (s[this.i + 1] === '(') {
       const outer = this.seg;
       this.i += 2;
+      const from = this.segments.length;
       this.sequence(true);
+      this.markSub(from);
       this.seg = outer;
       return '$(...)';
     }
@@ -328,7 +332,14 @@ class Parser {
   parseNested(src) {
     const p = new Parser(src);
     p.sequence(false);
+    const from = this.segments.length;
     this.segments.push(...p.segments);
+    this.markSub(from);
+  }
+
+  // Commands found inside `$(...)`, backticks or process substitution feed the command around them.
+  markSub(from) {
+    for (const g of this.segments.slice(from)) g.sub = true;
   }
 }
 
@@ -388,15 +399,12 @@ function shellGlobMatch(seg, name) {
     .replace(/\?/g, '.');
   return new RegExp(`^${re}$`).test(name);
 }
-// A glob in a folder segment counts only when it can reach the dotted folder of a login: its
-// first character is a dot, a bracket or a group, as in `~/.a*/credentials`. A leading `*` such as
-// `packages/*/config.json` does not, because default globbing skips dot folders. That holds only
-// while nothing in the command can change the shell's options (`optionsSeen`): then every glob
-// stays conservative, whatever way the option is spelled.
-let optionsSeen = false;
-const folderMatch = (seg, name) =>
-  seg === name ||
-  ((optionsSeen || /^[.[{(@+?!]/.test(seg)) && shellGlobMatch(seg, name));
+// A glob in a folder segment is as conservative as one in the file name, and `**` (which the regex
+// reads as `*`) stands for any depth. Relaxing it for `*/config.json` or `~/*/credentials` is not
+// safe: shell options that make a glob reach dot folders can be set outside the command text (a
+// sourced file, BASH_ENV, ENV, ZDOTDIR, --rcfile, eval of encoded text), so no gate on the command
+// can be complete. The cost is a false positive on a folder glob over a plain `config.json`.
+const folderMatch = shellGlobMatch;
 let cwdNow = null; // the caller's working directory, for a relative path
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
@@ -876,6 +884,49 @@ function credentialRule(name, args, redirects) {
   return null;
 }
 
+// Folders that hold a stored login. A recursive search, or a find that hands files to a reader,
+// over one of these reads the token without ever naming the file. Matched on the path's tail, with
+// every glob conservative like the file names above.
+const CREDENTIAL_FOLDERS = [
+  ['.aws'],
+  ['.docker'],
+  ['.claude'],
+  ['.config', 'gh'],
+];
+function isCredentialFolder(word) {
+  let raw = String(word).replace(/^@/, '');
+  if (cwdNow && !/^[/~$]/.test(raw)) raw = `${cwdNow}/${raw}`;
+  const parts = [];
+  for (const part of raw.toLowerCase().split('/').filter(Boolean)) {
+    if (part === '.') continue;
+    if (part === '..' && parts.length && parts[parts.length - 1] !== '..')
+      parts.pop();
+    else parts.push(part);
+  }
+  return CREDENTIAL_FOLDERS.some((tail) => {
+    if (parts.length < tail.length) return false;
+    const end = parts.slice(-tail.length);
+    return tail.every((name, k) => shellGlobMatch(end[k], name));
+  });
+}
+const SEARCHERS = new Set(['grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack']);
+const FIND_EXEC = new Set(['-exec', '-execdir', '-ok', '-okdir']);
+function folderReaderRule(name, args, seg) {
+  const folders = args.filter((a) => !isOption(a) && isCredentialFolder(a));
+  if (!folders.length) return null;
+  let how = null;
+  if (SEARCHERS.has(name)) how = `\`${name}\` over`;
+  else if (name === 'find') {
+    const next = seg.pipeTo ? basename(seg.pipeTo.words[0] ?? '') : '';
+    if (args.some((a) => FIND_EXEC.has(a))) how = '`find -exec` over';
+    else if (next === 'xargs' || next === 'parallel')
+      how = '`find` piped to xargs over';
+    else if (seg.sub) how = '`find` inside a substitution over';
+  }
+  if (!how) return null;
+  return `${how} a folder that holds a stored login can print its token. Name the files you mean, or list with \`ls\` or \`find -name\` alone. ${SAFE_CRED}`;
+}
+
 // macOS keychain, where Claude Code and other CLIs keep their logins on a Mac:
 // `security find-generic-password -w` (or `-g`) prints the stored password, `dump-keychain -d`
 // prints every one, and `export` without `-o` writes keys to stdout. Global options before the
@@ -1176,6 +1227,7 @@ function judgeSegment(seg, depth) {
     dumpRule(name, args) ??
     readerRule(name, args, seg.redirects) ??
     credentialRule(name, args, seg.redirects) ??
+    folderReaderRule(name, args, seg) ??
     keychainRule(name, args) ??
     processRule(name, args);
   if (reason) return reason;
@@ -1235,11 +1287,6 @@ const dotglobOn = (command) =>
   ) || /[*?\]>/]\([A-Za-z0-9.^,\- ]*D[A-Za-z0-9.^,\- ]*\)/.test(command);
 const GLOBBY = /[*?[<]|\/$|^~$/;
 let dotglobSeen = false; // set by secretDecision for the whole command, nested shells included
-// Any construct that can set a shell option, spelled however: `shopt`, `setopt`, `unsetopt`,
-// `set -o`/`set +o`, a shell given `-O`/`-o`/`+O`, GLOBIGNORE, BASHOPTS, SHELLOPTS, zsh `options[`.
-const OPTION_SETTER =
-  /\b(?:shopt|setopt|unsetopt)\b|\bset\s+[-+][a-zA-Z]*o\b|\b(?:[bzkd]?a?sh)\b[^;&|\n]*\s[-+][Oo]\b|GLOBIGNORE|BASHOPTS|SHELLOPTS|\boptions\[/;
-
 function judge(command, depth = 0) {
   if (depth > 8) return null;
   const segs = parseCommands(command);
@@ -1270,12 +1317,10 @@ export function secretDecision(command, options = {}) {
   credentialProbe = options.hasCredentialFile ?? null;
   cwdNow = options.cwd ?? null;
   dotglobSeen = dotglobOn(command);
-  optionsSeen = OPTION_SETTER.test(command);
   try {
     return judge(command);
   } finally {
     dotglobSeen = false;
-    optionsSeen = false;
     envProbe = null;
     credentialProbe = null;
     cwdNow = null;

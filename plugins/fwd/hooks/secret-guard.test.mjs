@@ -344,12 +344,11 @@ const ALLOW = [
   'test -e .worktrees/x/apps/api/.env.local',
   'ls -d .worktrees/x/apps/api/.env.local',
   'ls -d .worktrees/*/apps/api/.env.local',
-  // a folder-segment glob counts only when it can reach a dotted login folder
-  'cat packages/*/config.json',
-  // Default globbing skips dot folders, so with no option construct in the command this cannot
-  // reach ~/.aws/credentials. Any option construct makes every glob conservative (see DENY).
-  'cat ~/*/credentials',
-  'cat apps/*/credentials',
+  // listing a login folder, or finding in it without a reader, prints names only
+  'ls ~/.aws',
+  'ls -la ~/.config/gh',
+  'find ~/.aws -name x',
+  'find ~/.aws -type f',
   'git commit -m "fix(secret-guard): handle {} and (x) in prose"',
   'echo x | xargs -I{} echo {}',
   'gh pr view 1 --json state',
@@ -560,7 +559,31 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'cat ~/@(.netrc)',
     'cat ~/+(.netrc)',
     'cat ~/{.aws,x}/credentials',
-    // with any option construct in the command, a folder glob is conservative too
+    // Every glob is conservative in every segment, because shell options that make a glob reach
+    // dot folders can be set outside the command text (a sourced file, BASH_ENV, ENV, ZDOTDIR,
+    // --rcfile, eval of encoded text). A known false positive: a folder glob over a plain name.
+    'cat packages/*/config.json',
+    'cat ~/*/credentials',
+    'cat apps/*/credentials',
+    'cat ~/.config/*/hosts.yml',
+    'cat ~/.config/g*/hosts.yml',
+    'cat ~/.config/*/*.yml',
+    'cat ~/.config/**/hosts.yml',
+    'cat ~/**/hosts.yml',
+    'cat ~/*/*/hosts.yml',
+    // a reader over a folder that holds a login, searched or handed files by find
+    'grep -r token ~/.aws',
+    'grep -r token ~/.config/gh',
+    'rg token ~/.aws',
+    'ag token ~/.docker',
+    'grep -rn token ~/.claude',
+    'grep -r token ~/.aw?',
+    'find ~/.aws -type f -exec cat {} +',
+    'find ~/.aws -type f -execdir cat {} ;',
+    'find ~/.aws -type f | xargs cat',
+    'cat $(find ~/.aws -type f)',
+    'cat `find ~/.config/gh -type f`',
+    // with an option construct in the command, a folder glob is conservative too
     'd=dot; shopt -s ${d}glob; cat ~/*/credentials',
     'o=globdots; setopt $o; cat ~/*/credentials',
     'options[globdots]=on; cat ~/*/credentials',
