@@ -55,7 +55,7 @@ class Parser {
   sequence(inParen) {
     const s = this.src;
     let seg = this.newSegment();
-    let word = null; // { text, quoted }
+    let word = null; // { text, quoted, bare }
     let redirect = null; // pending redirect operator awaiting its target word
     let pendingHeredocs = [];
     let depth = 0;
@@ -71,7 +71,10 @@ class Parser {
           });
         else seg.redirects.push({ op: redirect, target: word.text });
         redirect = null;
-      } else seg.words.push(word.text);
+      } else {
+        seg.words.push(word.text);
+        if (word.bare) seg.bare.add(word.text);
+      }
       word = null;
     };
     const endSegment = () => {
@@ -80,9 +83,10 @@ class Parser {
       seg = this.newSegment();
     };
     const append = (text, quoted = false) => {
-      if (word === null) word = { text: '', quoted: false };
+      if (word === null) word = { text: '', quoted: false, bare: false };
       word.text += text;
       if (quoted) word.quoted = true;
+      else if (text !== '') word.bare = true;
     };
 
     while (this.i < s.length) {
@@ -213,6 +217,8 @@ class Parser {
       redirects: [],
       heredocs: [],
       expands: [],
+      // Texts of words with any unquoted part, which the shell may expand or glob.
+      bare: new Set(),
       pipeTo: null,
     };
     this.segments.push(seg);
@@ -881,18 +887,73 @@ function dumpRule(name, args) {
   return null;
 }
 
+// The git subcommand and the index of its first argument, past the global options. Options that
+// take a value in a separate word are skipped with it.
+const GIT_VALUE_OPTS =
+  /^(-[Cc]|--(git-dir|work-tree|namespace|config-env|exec-path))$/;
+const GIT_NO_INDEX = /^--no-i/; // git accepts any unique prefix of --no-index
+function gitSubcommand(args) {
+  let k = 0;
+  while (k < args.length && isOption(args[k]))
+    k += GIT_VALUE_OPTS.test(args[k]) ? 2 : 1;
+  return { sub: args[k], rest: k + 1 };
+}
+// Indexes of git pathspec globs that cannot reach a login file: a glob after `--` of grep, log,
+// diff or show, or any positional of ls-files. Git matches it against tracked files or a tree, not
+// the home credential folders. Only a glob quoted whole (the shell would expand a bare one against
+// the filesystem), relative, with no `..`, and not named like a dot folder qualifies. `--no-index`
+// reads the filesystem, so nothing is exempt there.
+function gitPathspecGlobs(name, args, seg) {
+  const out = new Set();
+  if (name !== 'git' || args.some((a) => GIT_NO_INDEX.test(a))) return out;
+  const { sub, rest } = gitSubcommand(args);
+  let from = -1;
+  if (sub === 'ls-files') from = rest;
+  else if (['grep', 'log', 'diff', 'show'].includes(sub)) {
+    const dash = args.indexOf('--', rest);
+    if (dash !== -1) from = dash + 1;
+  }
+  if (from === -1) return out;
+  for (let i = from; i < args.length; i++) {
+    const a = args[i];
+    if (
+      /[*?[{]/.test(a) &&
+      /^[\w*?[]/.test(a) &&
+      !a.includes('..') &&
+      !seg.bare.has(a) &&
+      !(sub === 'ls-files' && isOption(a))
+    )
+      out.add(i);
+  }
+  return out;
+}
 // Any command but a metadata one, given a stored login file as an argument or a redirect, can print
 // or send its token (`cat`, `jq`, `openssl -in`, `curl -d @file`).
-function credentialRule(name, args, redirects) {
-  const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
+function credentialRule(name, args, seg) {
+  const sources = seg.redirects
+    .filter((r) => r.op === '<')
+    .map((r) => r.target);
   if (sources.some((t) => isCredentialFile(t)))
     return `feeding a stored login file into a command can print its token. ${SAFE_CRED}`;
   // `du --files0-from` prints the lines of the file it is given, so it is not names-only.
   const safe =
     CREDENTIAL_SAFE.has(name) &&
     !(name === 'du' && args.some((a) => /^--files0-from/.test(a)));
-  if (!safe && args.some((a) => isCredentialFile(a)))
+  const specs = gitPathspecGlobs(name, args, seg);
+  if (!safe && args.some((a, i) => !specs.has(i) && isCredentialFile(a)))
     return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
+  // `git show rev:.netrc` prints a tracked login file straight from the object store.
+  if (
+    name === 'git' &&
+    ['show', 'cat-file', 'archive', 'diff', 'blame'].includes(
+      gitSubcommand(args).sub,
+    ) &&
+    args.some(
+      (a) =>
+        a.includes(':') && isCredentialFile(a.slice(a.lastIndexOf(':') + 1)),
+    )
+  )
+    return `\`git\` on a stored login file can print or send its token. ${SAFE_CRED}`;
   return null;
 }
 
@@ -1016,14 +1077,17 @@ function recursiveReader(name, args, seg) {
     );
   if (name === 'diff')
     return flag(/^-[A-Za-z]*r/) || args.includes('--recursive');
-  if (name === 'git') return args.includes('--no-index');
+  if (name === 'git') return args.some((a) => GIT_NO_INDEX.test(a));
   if (name === 'find' || name === 'fd' || name === 'fdfind')
     return !namesOnly(name, args, seg);
   return false;
 }
 function folderRule(name, args, seg) {
+  const specs = gitPathspecGlobs(name, args, seg);
   const words = [
-    ...args.filter((a) => !isOption(a) || a.includes('=')),
+    ...args.filter(
+      (a, i) => (!isOption(a) || a.includes('=')) && !specs.has(i),
+    ),
     ...seg.redirects.filter((r) => r.op === '<').map((r) => r.target),
   ];
   const recursive = recursiveReader(name, args, seg);
@@ -1352,7 +1416,7 @@ function judgeUnwrapped(seg, depth, unwrapped) {
   const reason =
     dumpRule(name, args) ??
     readerRule(name, args, seg.redirects) ??
-    credentialRule(name, args, seg.redirects) ??
+    credentialRule(name, args, seg) ??
     folderRule(name, args, seg) ??
     keychainRule(name, args) ??
     processRule(name, args);
