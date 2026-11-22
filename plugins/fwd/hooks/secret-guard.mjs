@@ -883,6 +883,25 @@ function dumpRule(name, args) {
 
 // Any command but a metadata one, given a stored login file as an argument or a redirect, can print
 // or send its token (`cat`, `jq`, `openssl -in`, `curl -d @file`).
+// Glob pathspecs of a git command: after `--`, or any positional of `ls-files`. A pathspec glob
+// (`-- '*.json'`) matches tracked files or a tree, not the home credential folders, so it is not
+// read as a filesystem glob that could hit a login file name. A literal credential path as a
+// pathspec stays checked, and `--no-index` reads the filesystem, so nothing is exempt there.
+function gitPathspecGlobs(name, args) {
+  if (name !== 'git' || args.includes('--no-index')) return new Set();
+  let k = 0;
+  while (k < args.length && isOption(args[k]))
+    k += /^-[Cc]$/.test(args[k]) ? 2 : 1;
+  const sub = args[k];
+  const rest = args.slice(k + 1);
+  let specs = [];
+  if (sub === 'ls-files') specs = rest.filter((a) => !isOption(a));
+  else if (['grep', 'log', 'diff', 'show'].includes(sub)) {
+    const dash = rest.indexOf('--');
+    if (dash !== -1) specs = rest.slice(dash + 1);
+  }
+  return new Set(specs.filter((a) => /[*?[{]/.test(a)));
+}
 function credentialRule(name, args, redirects) {
   const sources = redirects.filter((r) => r.op === '<').map((r) => r.target);
   if (sources.some((t) => isCredentialFile(t)))
@@ -891,8 +910,18 @@ function credentialRule(name, args, redirects) {
   const safe =
     CREDENTIAL_SAFE.has(name) &&
     !(name === 'du' && args.some((a) => /^--files0-from/.test(a)));
-  if (!safe && args.some((a) => isCredentialFile(a)))
+  const specs = gitPathspecGlobs(name, args);
+  if (!safe && args.some((a) => !specs.has(a) && isCredentialFile(a)))
     return `\`${name}\` on a stored login file can print or send its token. ${SAFE_CRED}`;
+  // `git show rev:.netrc` prints a tracked login file straight from the object store.
+  if (
+    name === 'git' &&
+    args.some(
+      (a) =>
+        a.includes(':') && isCredentialFile(a.slice(a.lastIndexOf(':') + 1)),
+    )
+  )
+    return `\`git\` on a stored login file can print or send its token. ${SAFE_CRED}`;
   return null;
 }
 
@@ -1022,8 +1051,9 @@ function recursiveReader(name, args, seg) {
   return false;
 }
 function folderRule(name, args, seg) {
+  const specs = gitPathspecGlobs(name, args);
   const words = [
-    ...args.filter((a) => !isOption(a) || a.includes('=')),
+    ...args.filter((a) => (!isOption(a) || a.includes('=')) && !specs.has(a)),
     ...seg.redirects.filter((r) => r.op === '<').map((r) => r.target),
   ];
   const recursive = recursiveReader(name, args, seg);
