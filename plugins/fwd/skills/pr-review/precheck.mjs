@@ -86,7 +86,8 @@ if (cmd === 'record') {
   const repo = currentRepo();
   const d = read();
   d.entries = d.entries.filter(
-    (e) => e.branch !== branch || e.scored || !entryMatchesRepo(e, repo),
+    (e) =>
+      e.branch !== branch || e.unrun || e.scored || !entryMatchesRepo(e, repo),
   );
   d.entries.push({
     ...(repo ? { repo } : {}),
@@ -179,6 +180,12 @@ if (cmd === 'score') {
   }
   if (!/^[1-9][0-9]*$/.test(pr))
     die(`score: <pr> must be a PR number (got "${pr}")`);
+  for (const [name, v] of [
+    ['predicted', predicted],
+    ['review total', total],
+  ])
+    if (!/^\d+$/.test(v))
+      die(`score: ${name} must be a non-negative integer (got "${v}")`);
   const d = read();
   // `predicted` counts the review's findings the pass had already caught, so it cannot
   // exceed the review's own total. A row recording 2 of 1 means the scorer counted
@@ -194,44 +201,68 @@ if (cmd === 'score') {
   // The PR's head branch comes from GitHub, never from the working directory: `score` runs
   // long after the branch merged, from whatever worktree or checkout is to hand, and a
   // cwd branch once attributed another lane's record to the wrong PR.
-  const repo = currentRepo();
+  const hintRepo = currentRepo();
   let headBranch;
-  try {
-    headBranch = execFileSync(
-      'gh',
-      [
-        'pr',
-        'view',
-        pr,
-        '--json',
-        'headRefName',
-        '-q',
-        '.headRefName',
-        ...(repo ? ['-R', repo] : []),
-      ],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-    ).trim();
-  } catch {
+  let prRepo;
+  const ghFail = (why) =>
     die(
-      `score: could not read PR #${pr}'s head branch from GitHub (gh pr view failed).`,
+      `score: could not read PR #${pr} from GitHub (${why}). ` +
+        'Check `gh auth status`, or pass --repo=owner/name when running outside the repository.',
+    );
+  try {
+    const out = JSON.parse(
+      execFileSync(
+        'gh',
+        [
+          'pr',
+          'view',
+          pr,
+          '--json',
+          'headRefName,url',
+          ...(hintRepo ? ['-R', hintRepo] : []),
+        ],
+        {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30000,
+        },
+      ),
+    );
+    headBranch = out.headRefName;
+    // The PR's own repository, from its URL: `-R` is only where to look, and the ledger
+    // match and the written row use the repository the PR actually lives in.
+    prRepo = (out.url ?? '').match(
+      /github\.com\/([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)\/pull\//,
+    )?.[1];
+  } catch (err) {
+    ghFail(
+      String(err.stderr ?? err.message ?? 'gh failed')
+        .trim()
+        .split('\n')[0],
     );
   }
   if (!headBranch) die(`score: PR #${pr} has no head branch on GitHub.`);
-  // Match only a record for this PR number or for this PR's head branch.
+  const repo = prRepo ?? hintRepo;
+  // With a known repository a row must carry the same one: a legacy row with no `repo`
+  // could belong to any repository's PR of that number or branch name.
+  const inRepo = (e) =>
+    repo ? Boolean(e.repo) && entryMatchesRepo(e, repo) : true;
+  // Match only a record for this PR number (exact within the repository) or, failing
+  // that, an unscored one on this PR's head branch.
   const byPr = [...d.entries]
     .reverse()
-    .find((e) => e.pr === Number(pr) && !e.unrun && entryMatchesRepo(e, repo));
-  const entry =
-    byPr ??
-    [...d.entries]
-      .reverse()
-      .find(
-        (e) =>
-          e.branch === headBranch &&
-          !e.scored &&
-          !e.unrun &&
-          entryMatchesRepo(e, repo),
-      );
+    .find((e) => e.pr === Number(pr) && !e.unrun && inRepo(e));
+  const byBranch = [...d.entries]
+    .reverse()
+    .find((e) => e.branch === headBranch && !e.scored && !e.unrun && inRepo(e));
+  if (byPr?.scored && byBranch) {
+    die(
+      `refusing: #${pr} is already scored (row on branch ${byPr.branch}), and a newer unscored ` +
+        `record for head branch ${headBranch} exists. Drop or score one of the two rows first; ` +
+        'scoring would silently overwrite the earlier one.',
+    );
+  }
+  const entry = byPr ?? byBranch;
   if (!entry) {
     die(
       `no pre-open record for #${pr} or for its head branch ${headBranch}. ` +
@@ -239,9 +270,12 @@ if (cmd === 'score') {
         'number or head branch afterwards, from any directory.',
     );
   }
-  if (entry.branch !== headBranch) {
+  if (byPr) {
+    // The PR number is exact, so the record is this PR's whatever branch it was recorded on.
+    entry.branch = headBranch;
+  } else if (entry.branch !== headBranch) {
     die(
-      `refusing: the only record for #${pr} is on branch ${entry.branch}, but the PR's head is ${headBranch}.`,
+      `refusing: the matched record is on branch ${entry.branch}, but #${pr}'s head is ${headBranch}.`,
     );
   }
   if (entry.scored)
