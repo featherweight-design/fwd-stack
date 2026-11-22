@@ -177,9 +177,8 @@ if (cmd === 'score') {
         '  number averaged over one category is a fact about the sample, not the pass.',
     );
   }
-  const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-    encoding: 'utf8',
-  }).trim();
+  if (!/^[1-9][0-9]*$/.test(pr))
+    die(`score: <pr> must be a PR number (got "${pr}")`);
   const d = read();
   // `predicted` counts the review's findings the pass had already caught, so it cannot
   // exceed the review's own total. A row recording 2 of 1 means the scorer counted
@@ -192,9 +191,33 @@ if (cmd === 'score') {
         'Findings the pass raised that the review never did are `--fixed=N`, counted separately.',
     );
   }
-  // By PR number first: `record` runs on the branch, `score` often runs long
-  // after it merged and was deleted, from whatever worktree is to hand.
+  // The PR's head branch comes from GitHub, never from the working directory: `score` runs
+  // long after the branch merged, from whatever worktree or checkout is to hand, and a
+  // cwd branch once attributed another lane's record to the wrong PR.
   const repo = currentRepo();
+  let headBranch;
+  try {
+    headBranch = execFileSync(
+      'gh',
+      [
+        'pr',
+        'view',
+        pr,
+        '--json',
+        'headRefName',
+        '-q',
+        '.headRefName',
+        ...(repo ? ['-R', repo] : []),
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+  } catch {
+    die(
+      `score: could not read PR #${pr}'s head branch from GitHub (gh pr view failed).`,
+    );
+  }
+  if (!headBranch) die(`score: PR #${pr} has no head branch on GitHub.`);
+  // Match only a record for this PR number or for this PR's head branch.
   const byPr = [...d.entries]
     .reverse()
     .find((e) => e.pr === Number(pr) && !e.unrun && entryMatchesRepo(e, repo));
@@ -204,16 +227,21 @@ if (cmd === 'score') {
       .reverse()
       .find(
         (e) =>
-          e.branch === branch &&
+          e.branch === headBranch &&
           !e.scored &&
           !e.unrun &&
           entryMatchesRepo(e, repo),
       );
   if (!entry) {
     die(
-      `no pre-open record for #${pr} or for branch ${branch}. ` +
-        'Run `record` before opening the PR; `score` finds it by PR number afterwards, ' +
-        'from any directory.',
+      `no pre-open record for #${pr} or for its head branch ${headBranch}. ` +
+        'Run `record` on the PR branch before opening the PR; `score` finds it by PR ' +
+        'number or head branch afterwards, from any directory.',
+    );
+  }
+  if (entry.branch !== headBranch) {
+    die(
+      `refusing: the only record for #${pr} is on branch ${entry.branch}, but the PR's head is ${headBranch}.`,
     );
   }
   if (entry.scored)
