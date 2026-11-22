@@ -50,6 +50,47 @@ test('RISKY_PATH still reads the paths it always did', () => {
     assert.ok(!RISKY_PATH.test(p), p);
 });
 
+test('design-token files are not risky; auth-token code and credential files stay risky', () => {
+  for (const p of [
+    'tokens/colors.css',
+    'tokens/colors.scss',
+    'tokens/colors.sass',
+    'tokens/colors.less',
+    'design/tokens/spacing.json',
+    'src/styles/tokens.css',
+    'src/theme/design-tokens.ts',
+    'src/styles/color-tokens.js',
+    'brand.tokens.json', // already passed before this change
+  ])
+    assert.ok(!RISKY_PATH.test(p), p);
+  for (const p of [
+    'lib/auth/token.ts',
+    'src/server/refresh-token.ts',
+    'api/tokens/route.ts',
+    'utils/jwt-token.mjs',
+    'middleware/csrf-token.ts',
+    'src/server/tokens/colors.css',
+    'src/auth/tokens/theme.json',
+    'admin/tokens/keys.json',
+    'config/tokens.json',
+    'data/tokens/api-keys.json',
+    'tokens/service-account.json',
+    'src/lib/tokens.ts',
+    'src/lib/token.ts',
+    'lib/refresh_token.py',
+    'refreshToken.ts',
+    'brand.tokens.ts',
+  ])
+    assert.ok(RISKY_PATH.test(p), p);
+});
+
+test('modelRiskOf follows the same design-token rule', () => {
+  assert.equal(modelRiskOf('tokens/colors.css'), null);
+  assert.equal(modelRiskOf('lib/auth/token.ts'), 'auth');
+  assert.equal(modelRiskOf('src/lib/refreshToken.ts'), 'security');
+  assert.equal(modelRiskOf('config/tokens.json'), 'security');
+});
+
 test('cron routes and route handler files are risky paths', () => {
   for (const p of [
     'src/cron/nightly.ts',
