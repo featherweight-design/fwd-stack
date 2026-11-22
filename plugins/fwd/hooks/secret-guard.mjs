@@ -1446,7 +1446,17 @@ function judge(command, depth = 0) {
       const w = unwrap(seg.words).words ?? [];
       const cmd = basename(w[0] ?? '');
       const dir = w.slice(1).find((x) => !isOption(x));
-      if (cmd === 'popd') {
+      // A bare `pushd` swaps the top two directories, and `pushd`/`popd` with +N or -N rotate
+      // the stack: the landing directory is not named, so it is an unresolved return.
+      const rotates =
+        (cmd === 'pushd' && w.length === 1) ||
+        ((cmd === 'pushd' || cmd === 'popd') &&
+          w.slice(1).some((x) => /^[+-]\d+$/.test(x)));
+      if (rotates) {
+        cwdNow = null;
+        oldDir = null;
+        if (visitedLogin) return lost;
+      } else if (cmd === 'popd') {
         oldDir = cwdNow;
         cwdNow = stack.pop() ?? null;
         if (cwdNow === null && visitedLogin) return lost;
@@ -1469,6 +1479,11 @@ function judge(command, depth = 0) {
   }
 }
 
+// Returns a denial reason, or null when the command is allowed.
+// `options.hasEnvFile(dir)` lets the caller say whether a folder holds a .env file (true or
+// false), or null when it cannot tell.
+// `options.hasCredentialFile(dir)` says the same for a stored login file, and `options.cwd` is
+// the folder a relative path is read from.
 export function secretDecision(command, options = {}) {
   if (typeof command !== 'string' || !command.trim()) return null;
   envProbe = options.hasEnvFile ?? null;

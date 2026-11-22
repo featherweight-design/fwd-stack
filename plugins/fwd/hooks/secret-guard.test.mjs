@@ -352,6 +352,8 @@ const ALLOW = [
   'find ~/.aws -name x | wc -l',
   'find ~/.aws -type f | head -n 3',
   'cd /tmp && cd - && ls',
+  'pushd /tmp && pushd && ls',
+  'pushd ~/Projects && popd && ls',
   'cd ~/Projects && cd /tmp && cd - && ls',
   'cd /tmp && cat "$OLDPWD"/notes.txt',
   'find ~/.aws -type f | cut -d/ -f4',
@@ -665,6 +667,12 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'cd ~/.aws && cd /tmp && popd && cat credentials',
     'pushd ~/.aws && pushd /tmp && popd && cat credentials',
     'cd ~ && cd /tmp && cd - && tar cf - . | cat',
+    // round 7: a pushd/popd that rotates the stack lands somewhere the command does not name
+    'pushd ~/.aws; pushd /tmp; pushd; cat credentials',
+    'pushd ~/.aws; pushd /tmp; pushd +1; cat credentials',
+    'pushd ~/.aws; pushd /tmp; pushd +0; cat credentials',
+    'pushd ~/.aws; pushd /tmp; pushd -1; cat credentials',
+    'pushd ~/.aws; pushd /tmp; popd +1; cat credentials',
     // an ancestor of a login folder, as the root of a recursive reader
     'grep -r token ~/.config',
     'grep -r token ~/.',
