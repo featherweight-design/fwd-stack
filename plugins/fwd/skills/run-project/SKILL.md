@@ -65,7 +65,8 @@ Every lane and subagent pays for the project's agent docs at start. Keep `AGENTS
    autonomous-run guard for its whole span (`orchestrator` §6). While it is open, no lane stops for
    context (`orchestrator` §7).
    Every wait, by every session, runs in the background (`run_in_background`, the watchdog or
-   Monitor) so the notification wakes it; never in the foreground, present or away
+   Monitor) so the notification wakes it; never in the foreground, present or away,
+   and never on `/loop`, CronCreate or ScheduleWakeup, which re-read the whole context on every wake
    (`orchestrator` §6).
 
 ## 3 · The lane brief
