@@ -390,9 +390,13 @@ function shellGlobMatch(seg, name) {
 }
 // A glob in a folder segment counts only when it can reach the dotted folder of a login: its
 // first character is a dot, a bracket or a group, as in `~/.a*/credentials`. A leading `*` such as
-// `packages/*/config.json` does not (dotfile globbing being switched on is refused separately).
+// `packages/*/config.json` does not, because default globbing skips dot folders. That holds only
+// while nothing in the command can change the shell's options (`optionsSeen`): then every glob
+// stays conservative, whatever way the option is spelled.
+let optionsSeen = false;
 const folderMatch = (seg, name) =>
-  seg === name || (/^[.[{(@+?!]/.test(seg) && shellGlobMatch(seg, name));
+  seg === name ||
+  ((optionsSeen || /^[.[{(@+?!]/.test(seg)) && shellGlobMatch(seg, name));
 let cwdNow = null; // the caller's working directory, for a relative path
 export function isCredentialFile(word, cwd = cwdNow) {
   let raw = String(word)
@@ -1231,6 +1235,10 @@ const dotglobOn = (command) =>
   ) || /[*?\]>/]\([A-Za-z0-9.^,\- ]*D[A-Za-z0-9.^,\- ]*\)/.test(command);
 const GLOBBY = /[*?[<]|\/$|^~$/;
 let dotglobSeen = false; // set by secretDecision for the whole command, nested shells included
+// Any construct that can set a shell option, spelled however: `shopt`, `setopt`, `unsetopt`,
+// `set -o`/`set +o`, a shell given `-O`/`-o`/`+O`, GLOBIGNORE, BASHOPTS, SHELLOPTS, zsh `options[`.
+const OPTION_SETTER =
+  /\b(?:shopt|setopt|unsetopt)\b|\bset\s+[-+][a-zA-Z]*o\b|\b(?:[bzkd]?a?sh)\b[^;&|\n]*\s[-+][Oo]\b|GLOBIGNORE|BASHOPTS|SHELLOPTS|\boptions\[/;
 
 function judge(command, depth = 0) {
   if (depth > 8) return null;
@@ -1262,10 +1270,12 @@ export function secretDecision(command, options = {}) {
   credentialProbe = options.hasCredentialFile ?? null;
   cwdNow = options.cwd ?? null;
   dotglobSeen = dotglobOn(command);
+  optionsSeen = OPTION_SETTER.test(command);
   try {
     return judge(command);
   } finally {
     dotglobSeen = false;
+    optionsSeen = false;
     envProbe = null;
     credentialProbe = null;
     cwdNow = null;

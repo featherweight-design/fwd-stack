@@ -346,6 +346,9 @@ const ALLOW = [
   'ls -d .worktrees/*/apps/api/.env.local',
   // a folder-segment glob counts only when it can reach a dotted login folder
   'cat packages/*/config.json',
+  // Default globbing skips dot folders, so with no option construct in the command this cannot
+  // reach ~/.aws/credentials. Any option construct makes every glob conservative (see DENY).
+  'cat ~/*/credentials',
   'cat apps/*/credentials',
   'git commit -m "fix(secret-guard): handle {} and (x) in prose"',
   'echo x | xargs -I{} echo {}',
@@ -557,6 +560,13 @@ test('stored CLI logins and keychain passwords are not printed', () => {
     'cat ~/@(.netrc)',
     'cat ~/+(.netrc)',
     'cat ~/{.aws,x}/credentials',
+    // with any option construct in the command, a folder glob is conservative too
+    'd=dot; shopt -s ${d}glob; cat ~/*/credentials',
+    'o=globdots; setopt $o; cat ~/*/credentials',
+    'options[globdots]=on; cat ~/*/credentials',
+    "bash -O $o -c 'cat ~/*/credentials'",
+    'set -o globdots; cat ~/*/credentials',
+    'GLOBIGNORE=x; cat ~/*/credentials',
     // dotfile globbing turned on, however it is spelled
     'unsetopt no_glob_dots; cat ~/.claude/*',
     'unsetopt noglobdots; cat ~/.claude/*',
