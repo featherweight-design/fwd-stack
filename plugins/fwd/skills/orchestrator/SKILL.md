@@ -187,7 +187,11 @@ nothing was watching.
 - **Lane messages are the primary wake.** The watchdog is the fallback: run
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/watchdog.mjs"` with the Bash tool's
   `run_in_background`. It polls GitHub at no model cost, and exits on a PR quiet for 30+ minutes,
-  on a truncated PR list, after five failed polls, or on the heartbeat (150 minutes by default). A PR held on
+  on a truncated PR list, after five failed polls, on a transition (checks finished, a merge, a close
+  without merging, a new review or comment), or on the heartbeat (150 minutes by default). The first
+  line of each wake names its class, `watchdog [event|quiet|heartbeat|error]`: react to an `event`
+  by acting on that PR (merge gate, fix, close-out), to `quiet` by nudging the lane yourself (the
+  watchdog never messages one), to `error` by checking `gh`, and to `heartbeat` by the lane sweep. A PR held on
   purpose (waiting on the user, a hold on merges) gets the `hold` label so the watchdog skips it;
   remove the label when the hold lifts. Create the label once per repository
   (`gh label create hold`). Every watchdog report lists the held PRs and how long each has been
