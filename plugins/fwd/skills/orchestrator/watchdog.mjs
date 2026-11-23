@@ -27,6 +27,7 @@ import {
   heldPrs,
   lookupBatch,
   nextSnapshots,
+  quietedNumbers,
   snapshots,
   stalledPrs,
   transitions,
@@ -98,17 +99,20 @@ const richPrs = () =>
     ),
   );
 
-// The current login, looked up once per process. On failure only bots are filtered out.
+// The current login, cached once found. A failed lookup is retried on later polls, three tries in
+// all, and until it succeeds only bots are filtered out.
 let me;
+let loginTries = 0;
 const login = () => {
-  if (me !== undefined) return me;
+  if (me !== undefined || loginTries >= 3) return me ?? null;
+  loginTries++;
   try {
     me = execFileSync('gh', ['api', 'user', '-q', '.login'], {
       encoding: 'utf8',
       timeout: 30_000,
     }).trim();
   } catch {
-    me = null;
+    return null;
   }
   return me;
 };
@@ -209,7 +213,13 @@ for (;;) {
     );
     const resolved = resolveGone(tried);
     const events = transitions(seen.snap, cur, resolved);
-    const snap = nextSnapshots(seen.snap, cur, resolved, tried);
+    const snap = nextSnapshots(
+      seen.snap,
+      cur,
+      resolved,
+      tried,
+      quietedNumbers(prs),
+    );
     if (stalled.length || JSON.stringify(snap) !== JSON.stringify(seen.snap)) {
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(seenFile, `${JSON.stringify({ ...seen, snap })}\n`);

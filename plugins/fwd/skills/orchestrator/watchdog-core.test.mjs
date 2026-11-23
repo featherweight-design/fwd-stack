@@ -10,6 +10,7 @@ import {
   MAX_LOOKUPS,
   MAX_MISS,
   nextSnapshots,
+  quietedNumbers,
   snapshots,
   stalledPrs,
   transitions,
@@ -204,6 +205,20 @@ test('snapshots skip drafts and held PRs, so they raise no events', () => {
     { ...base, number: 4, labels: [{ name: 'bug' }] },
   ]);
   assert.deepEqual(Object.keys(out), ['1', '4']);
+});
+
+test('a PR that turns draft or held forgets its snapshot, so a later merge raises no event', () => {
+  const prs = [
+    { number: 1, isDraft: true },
+    { number: 2, labels: [{ name: 'hold' }] },
+    { number: 3, labels: [] },
+  ];
+  assert.deepEqual(quietedNumbers(prs), [1, 2]);
+  const prev = { 1: snap('success'), 2: snap('success'), 3: snap('success') };
+  assert.deepEqual(
+    Object.keys(nextSnapshots(prev, {}, {}, [], quietedNumbers(prs))),
+    ['3'],
+  );
 });
 
 test('snapshots do not count the user or bot authors as new talk', () => {

@@ -90,6 +90,10 @@ export function snapshots(prs, me = null) {
   );
 }
 
+/** The numbers of open PRs that are drafts or held: they raise no events. */
+export const quietedNumbers = (prs) =>
+  prs.filter((p) => p.isDraft || held(p)).map((p) => p.number);
+
 export const MAX_MISS = 5;
 export const MAX_LOOKUPS = 5;
 
@@ -135,12 +139,19 @@ export function transitions(prev = {}, cur = {}, resolved = {}) {
 /**
  * The snapshots to store: the open PRs, plus those not seen this poll. A PR in `tried` (looked up
  * as gone) that came back unresolved gains a `miss`, and is dropped after MAX_MISS of them so a
- * lookup that never resolves is not retried forever.
+ * lookup that never resolves is not retried forever. A PR in `quieted` (open, but now a draft
+ * or held) loses its snapshot, so its later merge or close raises no event.
  */
-export function nextSnapshots(prev = {}, cur = {}, resolved = {}, tried = []) {
+export function nextSnapshots(
+  prev = {},
+  cur = {},
+  resolved = {},
+  tried = [],
+  quieted = [],
+) {
   const out = {};
   for (const [n, was] of Object.entries(prev)) {
-    if (cur[n] || resolved[n]) continue;
+    if (cur[n] || resolved[n] || quieted.map(String).includes(n)) continue;
     if (!tried.map(String).includes(n)) out[n] = was;
     else if ((was.miss ?? 0) + 1 < MAX_MISS)
       out[n] = { ...was, miss: (was.miss ?? 0) + 1 };
