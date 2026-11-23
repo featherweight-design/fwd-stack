@@ -172,6 +172,12 @@ test('away: a flagged merge in the middle of a chain is denied', () => {
   assert.equal(real(`echo start; ${AUTO}; echo done`, d).allowed, false);
 });
 
+test('away: a flagged merge the gate cannot place is still denied by the away rule', () => {
+  const d = dataDir();
+  open(d);
+  assert.match(real(`cd && ${M} 42 --auto`, d).reason, /user is away/);
+});
+
 test('away: a mention of a mutation name in a grep or a commit is not denied', () => {
   const d = dataDir();
   open(d);

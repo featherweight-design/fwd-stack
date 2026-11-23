@@ -95,3 +95,16 @@ test('a window written to the derived folder is seen when the exported folder di
   assert.equal(awayState(hook, 2_000), 'away');
   assert.equal(awayState(hook, until + 1), 'unknown');
 });
+
+test('clear removes the window from every folder a reader looks in', () => {
+  const config = mkdtempSync(join(tmpdir(), 'away-config-'));
+  const e = {
+    CLAUDE_CONFIG_DIR: config,
+    CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'away-other-')),
+  };
+  setAway(1, e);
+  setAway(1, { CLAUDE_CONFIG_DIR: config });
+  assert.equal(awayState(e), 'away');
+  clearAway(e);
+  assert.equal(awayState(e), 'present');
+});

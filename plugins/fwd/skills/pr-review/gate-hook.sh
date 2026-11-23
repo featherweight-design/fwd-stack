@@ -115,12 +115,17 @@ while read -r action pr repo; do
   status=$?
   [ $status -ne 0 ] && break
 done <<<"$gated"
-# Flags but no PR to judge (a GraphQL call, an unreadable query): the gate judges the away rule
-# alone. If it cannot run, this denies, like every other gate call.
-if [ $status -eq 0 ] && [ -n "$flags" ] && [ -z "$ran" ]; then
-  ran=$gate
-  out=$(node "$gate" --action merge --flags-only "${extra[@]}" 2>&1)
-  status=$?
+# Flags but no PR to judge (a GraphQL call), or a denial for another reason (a cd the gate cannot
+# follow): the gate judges the away rule alone, and its refusal is the one named. If it cannot run,
+# this denies, like every other gate call.
+if [ -n "$flags" ] && { [ $status -ne 0 ] || [ -z "$ran" ]; }; then
+  fout=$(node "$gate" --action merge --flags-only "${extra[@]}" 2>&1)
+  fstatus=$?
+  if [ $fstatus -ne 0 ] || [ $status -eq 0 ]; then
+    ran=$gate
+    out=$fout
+    status=$fstatus
+  fi
 fi
 [ $status -eq 0 ] && exit 0
 

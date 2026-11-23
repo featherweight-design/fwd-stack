@@ -148,6 +148,29 @@ test('only the query field decides whether a graphql call is readable', () => {
     assert.deepEqual(mergeFlags(cmd), ['queue'], cmd);
 });
 
+test('gh api is found behind any wrapper words', () => {
+  for (const pre of [
+    'timeout 30',
+    'xargs -I{}',
+    'env -i',
+    'sudo -u bob',
+    'nice -n 5',
+  ])
+    assert.deepEqual(
+      mergeFlags(`${pre} gh api graphql -f query='${ENQUEUE}'`),
+      ['queue'],
+      pre,
+    );
+});
+
+test('an expanding field word counts as opaque unless its literal name is not query', () => {
+  const read = "-f query='{viewer{login}}'";
+  for (const extra of ['-f "$X"', '-F "$X"', '--field "$X"', '-f "query=$Q"'])
+    assert.deepEqual(mergeFlags(`gh api graphql ${read} ${extra}`), ['queue']);
+  for (const extra of ['-F id="$THREAD_ID"', '-f note=$(date)', '-F n=5'])
+    assert.deepEqual(mergeFlags(`gh api graphql ${read} ${extra}`), []);
+});
+
 test('another tool calling the API merge or GraphQL path reads as api; other paths do not', () => {
   const host = 'https://api.github.com';
   for (const cmd of [
@@ -170,7 +193,6 @@ test('mutation names count only in a gh api graphql call', () => {
   for (const cmd of [
     'grep -rn enqueuePullRequest src',
     'git commit -m "document enqueuePullRequest and mergePullRequest"',
-    'echo gh api graphql enqueuePullRequest',
     'pnpm test -- enablePullRequestAutoMerge',
     `gh issue comment 5 --body '${ENQUEUE}'`,
   ])

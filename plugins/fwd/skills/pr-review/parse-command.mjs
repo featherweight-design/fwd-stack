@@ -308,29 +308,33 @@ function wordExpands(s) {
   return false;
 }
 
-// Whether any `query=` field word of the line expands. Only that field: a `$VAR` in `-F id="$ID"`
-// or a `--jq "$FILTER"` is not the query's text.
-function queryExpands(cmd) {
-  for (const m of cmd.matchAll(/query=/g)) {
-    const start = cmd.slice(0, m.index).search(/\S*$/);
-    if (wordExpands(cmd.slice(start))) return true;
+// Whether a `-f`/`-F`/`--field`/`--raw-field` field word of the line expands, other than one that
+// opens with a literal name that is not `query` (`-F id="$ID"` is a harmless variable). A word whose
+// name is itself an expansion, or is `query`, may hold the query, so it counts. Other words of the
+// line (`--jq "$FILTER"`) are not fields.
+function fieldExpands(cmd) {
+  for (const m of cmd.matchAll(
+    /(?:^|\s)(?:--field|--raw-field|-f|-F)(?:=|\s*)/g,
+  )) {
+    const word = cmd.slice(m.index + m[0].length);
+    if (!wordExpands(word)) continue;
+    const name = word.match(/^["']?([A-Za-z_][\w.[\]-]*)=/)?.[1];
+    if (name === undefined || name === 'query') return true;
   }
   return false;
 }
 
-// The arguments after `gh [repo flags] api`, when `gh` is the command itself; null otherwise.
+// The arguments after `gh [repo flags] api`, for a `gh` anywhere in the command's words (behind
+// `timeout 30`, `xargs -I{}`, `env -i`, `sudo -u bob`); null when there is none.
 function ghApiArgs(words) {
-  let at = 0;
-  while (
-    at < words.length &&
-    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at]) || PREFIXES.has(words[at]))
-  )
-    at++;
-  if (words[at]?.split('/').at(-1) !== 'gh') return null;
-  let i = at + 1;
-  while (i < words.length && isRepoFlag(words[i]))
-    i += words[i] === '-R' || words[i] === '--repo' ? 2 : 1;
-  return words[i] === 'api' ? words.slice(i + 1) : null;
+  for (let at = 0; at < words.length; at++) {
+    if (words[at].split('/').at(-1) !== 'gh') continue;
+    let i = at + 1;
+    while (i < words.length && isRepoFlag(words[i]))
+      i += words[i] === '-R' || words[i] === '--repo' ? 2 : 1;
+    if (words[i] === 'api') return words.slice(i + 1);
+  }
+  return null;
 }
 
 // The `query=` field values of a `gh api graphql` call, and whether any of the query is out of
@@ -377,7 +381,7 @@ function apiFlagsIn(cmd, depth) {
     }
     if (args.some((a) => GRAPHQL_PATH.test(a))) {
       const { texts, opaque } = graphqlQueries(args);
-      if (opaque || queryExpands(cmd)) flags.push('queue');
+      if (opaque || fieldExpands(cmd)) flags.push('queue');
       for (const t of texts) {
         if (GRAPHQL_QUEUE.test(t)) flags.push('queue');
         if (GRAPHQL_MERGE.test(t)) flags.push('api');

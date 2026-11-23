@@ -82,8 +82,11 @@ export function setAway(hours, env = process.env, now = Date.now()) {
   return until;
 }
 
+// `set` writes one folder; `clear` removes the window from every folder a reader looks in, so a
+// window left in the other one cannot outlive the user's return.
 export function clearAway(env = process.env) {
-  rmSync(file(env), { force: true });
+  for (const dir of pluginDataDirs(env))
+    rmSync(join(dir, 'away.json'), { force: true });
 }
 
 if (isMain(import.meta.url)) {
@@ -95,7 +98,7 @@ if (isMain(import.meta.url)) {
     clearAway();
     console.log('present');
   } else if (command === 'status') {
-    const until = awayUntil();
+    const { until } = awayWindow(); // agrees with the gate
     console.log(
       until ? `away until ${new Date(until).toISOString()}` : 'present',
     );
