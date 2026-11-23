@@ -4,10 +4,19 @@ import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { awayState, awayUntil, clearAway, setAway } from './away.mjs';
+import {
+  awayState,
+  awayUntil,
+  awayWindow,
+  clearAway,
+  setAway,
+} from './away.mjs';
 
+// CLAUDE_CONFIG_DIR is scratch too: awayState also reads the derived folder under it, never the
+// real one.
 const env = () => ({
   CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'away-')),
+  CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), 'away-config-')),
 });
 
 test('a window is open until it expires, then the user is present', () => {
@@ -70,4 +79,19 @@ test('a directory where the file should be is unknown', () => {
   const e = env();
   mkdirSync(join(e.CLAUDE_PLUGIN_DATA, 'away.json'));
   assert.equal(awayState(e), 'unknown');
+});
+
+test('a window written to the derived folder is seen when the exported folder differs', () => {
+  // The writer, run from Bash, has no exported folder; a hook may have a differently named one.
+  const config = mkdtempSync(join(tmpdir(), 'away-config-'));
+  const until = setAway(1, { CLAUDE_CONFIG_DIR: config }, 1_000);
+  const hook = {
+    CLAUDE_CONFIG_DIR: config,
+    CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'away-other-')),
+  };
+  assert.deepEqual(awayWindow(hook, 2_000), { state: 'away', until });
+  // A damaged file in one folder is unknown, but an open window in another still wins.
+  writeFileSync(join(hook.CLAUDE_PLUGIN_DATA, 'away.json'), '{');
+  assert.equal(awayState(hook, 2_000), 'away');
+  assert.equal(awayState(hook, until + 1), 'unknown');
 });

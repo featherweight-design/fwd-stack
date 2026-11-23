@@ -18,6 +18,7 @@ const run = (data, ...args) =>
       ...process.env,
       PATH: dirname(process.execPath),
       CLAUDE_PLUGIN_DATA: data,
+      CLAUDE_CONFIG_DIR: mkdtempSync(join(tmpdir(), 'gate-away-config-')),
     },
   });
 const withPr = (data, ...args) =>

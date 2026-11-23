@@ -49,7 +49,7 @@ import {
 } from './git-remote.mjs';
 import { parsePages } from './pages.mjs';
 import { awayMergeRefusal } from './away-merge.mjs';
-import { awayUntil } from '../../lib/away.mjs';
+import { awayWindow } from '../../lib/away.mjs';
 
 const args = process.argv.slice(2);
 const pr = args.find((a) => /^\d+$/.test(a));
@@ -89,15 +89,15 @@ const mergeFlags = args.includes('--merge-flags')
   ? (args[args.indexOf('--merge-flags') + 1] ?? '').split(',').filter(Boolean)
   : [];
 if (action === 'merge') {
-  const refusal = awayMergeRefusal(mergeFlags);
+  const window = awayWindow(); // read once: the refusal and the note below agree
+  const refusal = awayMergeRefusal(mergeFlags, window.state);
   if (refusal) {
     console.log(`BLOCKED by pr-review:\n  - ${refusal}`);
     process.exit(1);
   }
-  const until = awayUntil();
-  if (until)
+  if (window.until)
     console.log(
-      `away window open until ${new Date(until).toISOString()}: merging only on CI that is green on the head now`,
+      `away window open until ${new Date(window.until).toISOString()}: merging only on CI that is green on the head now`,
     );
   // A flag-only call (a GraphQL or API merge form that names no PR the gate can read) has nothing
   // else to judge: the away rule was the whole question.

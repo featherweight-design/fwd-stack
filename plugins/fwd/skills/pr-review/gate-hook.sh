@@ -68,9 +68,11 @@ extra=()
 bundled="$here/pr-gate.mjs"
 gate=$(node "$here/gate-path.mjs" "$bundled" 2>/dev/null) || gate="$bundled"
 [ -n "$gate" ] && [ -f "$gate" ] || gate="$bundled"
-# An installed gate from before the away rule ignores --merge-flags, so a flagged line is always
-# judged by the gate bundled beside this script.
-[ -n "$flags" ] && gate="$bundled"
+# An installed gate from before the away rule ignores --merge-flags. For a flagged line the
+# resolved gate must name that flag in its source, or the gate bundled beside this script judges.
+if [ -n "$flags" ] && ! grep -qF -- '--merge-flags' "$gate" 2>/dev/null; then
+  gate="$bundled"
+fi
 
 # Where the gated commands run: `cd <dir>`, `cd?` (unknown), or neither (the session's directory).
 run_dir=""

@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,9 +50,16 @@ const dataDir = () => mkdtempSync(join(root, 'data-'));
 const open = (d) => setAway(2, { CLAUDE_PLUGIN_DATA: d });
 
 const runHook = (script, command, env) => {
+  const home = env.HOME ?? bareHome;
   const r = spawnSync('bash', [script], {
     cwd: root,
-    env: { ...process.env, HOME: bareHome, ...env },
+    // CLAUDE_CONFIG_DIR follows HOME, so the derived data folder is scratch too.
+    env: {
+      ...process.env,
+      CLAUDE_CONFIG_DIR: join(home, '.claude'),
+      HOME: home,
+      ...env,
+    },
     encoding: 'utf8',
     input: JSON.stringify({ cwd: root, tool_input: { command } }),
   });
@@ -181,6 +189,84 @@ test('present: GraphQL forms are allowed as before, and a flagged merge is not d
     assert.equal(real(cmd, d).allowed, true, cmd);
   const flagged = stub(AUTO);
   assert.equal(flagged.calls.length, 1);
+});
+
+test('away: a direct call to the API merge or GraphQL path is denied, a plain curl is not', () => {
+  const d = dataDir();
+  open(d);
+  for (const cmd of [
+    'curl -X PUT https://api.github.com/repos/o/r/pulls/4/' + 'merge',
+    'node -e "fetch(\'https://api.github.com/graphql\')"',
+    'wget --method=POST https://api.github.com/graphql',
+  ])
+    assert.equal(real(cmd, d).allowed, false, cmd);
+  assert.equal(real('curl https://api.github.com/repos/o/r', d).allowed, true);
+  assert.equal(
+    real('curl https://api.github.com/graphql', dataDir()).allowed,
+    true,
+  );
+});
+
+test('the hook `if` filters let graphql through with repo flags and extra spaces', () => {
+  const hooks = JSON.parse(
+    readFileSync(join(here, '..', '..', 'hooks', 'hooks.json'), 'utf8'),
+  );
+  const ifs = hooks.hooks.PreToolUse[0].hooks.map((h) => h.if);
+  assert.ok(ifs.includes('Bash(*graphql*)'));
+  assert.ok(ifs.includes('Bash(*' + 'merge*)'));
+  const d = dataDir();
+  open(d);
+  for (const cmd of [
+    "gh -R o/r api graphql -f query='mutation { enqueuePullRequest(input: {}) { c } }'",
+    "gh  api  graphql -f query='mutation { enqueuePullRequest(input: {}) { c } }'",
+  ])
+    assert.equal(real(cmd, d).allowed, false, cmd);
+});
+
+// A home whose ~/.claude/fwd links to a newer cached install with the given gate source.
+const newestHome = (name, gateSource) => {
+  const h = join(root, name);
+  const version = join(
+    h,
+    '.claude',
+    'plugins',
+    'cache',
+    'fwd-stack',
+    'fwd',
+    '9.9.9',
+  );
+  mkdirSync(join(version, 'skills', 'pr-review'), { recursive: true });
+  writeFileSync(
+    join(version, 'skills', 'pr-review', 'pr-gate.mjs'),
+    gateSource,
+  );
+  symlinkSync(version, join(h, '.claude', 'fwd'));
+  return h;
+};
+
+test('a flagged line uses the newest gate only when it knows --merge-flags', () => {
+  const known = newestHome(
+    'home-knows',
+    "// handles --merge-flags\nconsole.log('NEWEST');\nprocess.exit(1);\n",
+  );
+  const old = newestHome('home-old', 'process.exit(0);\n');
+  const run = (home) => {
+    const log = join(root, `log-${Math.random().toString(36).slice(2)}`);
+    writeFileSync(log, '');
+    const r = runHook(join(stubSkill, 'gate-hook.sh'), AUTO, {
+      HOME: home,
+      CLAUDE_PLUGIN_DATA: dataDir(),
+      STUB_LOG: log,
+      STUB_EXIT: '1',
+    });
+    return { r, calls: readFileSync(log, 'utf8').split('\n').filter(Boolean) };
+  };
+  const a = run(known);
+  assert.match(a.r.reason, /NEWEST/);
+  assert.equal(a.calls.length, 0, 'the bundled stub must not run');
+  const b = run(old);
+  assert.equal(b.r.allowed, false);
+  assert.equal(b.calls.length, 1, 'an old gate is replaced by the bundled one');
 });
 
 test('a damaged away file denies the flagged forms and leaves the rest alone', () => {

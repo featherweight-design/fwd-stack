@@ -17,42 +17,58 @@ import {
 import { join } from 'node:path';
 
 import { isMain } from './is-main.mjs';
-import { pluginDataDir } from './plugin-data.mjs';
+import { pluginDataDir, pluginDataDirs } from './plugin-data.mjs';
 
 const file = (env) => join(pluginDataDir(env), 'away.json');
 
-export function awayUntil(env = process.env, now = Date.now()) {
-  try {
-    const { until } = JSON.parse(readFileSync(file(env), 'utf8'));
-    return typeof until === 'number' && until > now ? until : null;
-  } catch {
-    return null; // no window, or an unreadable one: treat the user as present
-  }
-}
-
-// Three readings, for a rule that may only ever ADD a refusal while the user is away. `away`: an
-// open window. `present`: no file, or a window that has expired. `unknown`: a file is there but
-// cannot be read or parsed (a torn write, a hand edit, a permissions fault). A caller that adds
-// refusals treats `unknown` like `away`: a damaged file must not silently re-enable what an open
-// window forbids. A caller must never use `unknown` to relax anything.
-// This differs from awayUntil on purpose. awayUntil reads a damaged file as present, the safe
-// direction for rotation and stopping for context (a damaged file never strands a lane). The merge
-// rule adds refusals, so there the safe direction is the opposite: unknown reads as open.
-export function awayState(env = process.env, now = Date.now()) {
+// One window file read: `away` (with its end), `present` (no file, or expired) or `unknown` (a
+// file is there but cannot be read or parsed: a torn write, a hand edit, a permissions fault).
+function readWindow(path, now) {
   let raw;
   try {
-    raw = readFileSync(file(env), 'utf8');
+    raw = readFileSync(path, 'utf8');
   } catch (e) {
-    return e?.code === 'ENOENT' ? 'present' : 'unknown';
+    return { state: e?.code === 'ENOENT' ? 'present' : 'unknown', until: null };
   }
   try {
     const { until } = JSON.parse(raw);
-    if (typeof until !== 'number' || !Number.isFinite(until)) return 'unknown';
-    return until > now ? 'away' : 'present';
+    if (typeof until !== 'number' || !Number.isFinite(until))
+      return { state: 'unknown', until: null };
+    return until > now
+      ? { state: 'away', until }
+      : { state: 'present', until: null };
   } catch {
-    return 'unknown';
+    return { state: 'unknown', until: null };
   }
 }
+
+// The end of the window, or null: no window, an expired one and an unreadable one all read as
+// present. The safe direction for rotation and stopping for context: a damaged file never strands
+// a lane.
+export function awayUntil(env = process.env, now = Date.now()) {
+  return readWindow(file(env), now).until;
+}
+
+// The window for a rule that may only ever ADD a refusal, read once: `{ state, until }`. The
+// opposite safe direction from awayUntil: a damaged file must not silently re-enable what an open
+// window forbids, so such a caller treats `unknown` like `away` (and never uses it to relax
+// anything). Every folder the writer or the kit could have used is read, because `away.mjs set`
+// run from Bash and a hook can resolve different ones (see plugin-data.mjs): any open window
+// wins, then any unreadable file, and the user is present only when all are clean and closed.
+export function awayWindow(env = process.env, now = Date.now()) {
+  const window = { state: 'present', until: null };
+  for (const dir of pluginDataDirs(env)) {
+    const w = readWindow(join(dir, 'away.json'), now);
+    if (w.state === 'away') {
+      window.state = 'away';
+      window.until = Math.max(window.until ?? 0, w.until);
+    } else if (w.state === 'unknown' && window.state !== 'away')
+      window.state = 'unknown';
+  }
+  return window;
+}
+
+export const awayState = (env, now) => awayWindow(env, now).state;
 
 export function setAway(hours, env = process.env, now = Date.now()) {
   if (!(hours > 0)) throw new Error('hours must be a positive number');

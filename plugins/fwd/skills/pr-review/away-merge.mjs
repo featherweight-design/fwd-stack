@@ -6,21 +6,19 @@
 // pr-gate.mjs is the one caller: the hook hands it the flags (`--merge-flags auto,admin,queue,api`)
 // and the gate refuses. This rule only ever adds a refusal. It never allows anything the gate would
 // refuse, and a present user sees no change at all.
-import { awayState } from '../../lib/away.mjs';
-
 const WHAT = {
   auto: '`--auto` (auto-merge)',
   admin: '`--admin` (bypassing the merge requirements)',
   queue:
     'a merge queue or auto-merge mutation, or a GraphQL call whose query cannot be read',
-  api: 'a merge made through the API instead of `gh pr merge` (GraphQL mergePullRequest, REST PUT .../merge)',
+  api: 'a merge or GraphQL call made through the API instead of `gh pr merge` (GraphQL mergePullRequest, REST PUT .../merge, a direct call to api.github.com)',
 };
 
-// The refusal for these flags, or null when the merge may go on to the gate's other rules.
-export function awayMergeRefusal(flags, env = process.env, now = Date.now()) {
-  const asked = [...new Set(flags)].filter((f) => f in WHAT);
+// The refusal for these flags, or null when the merge may go on to the gate's other rules. `state`
+// is the window's state (`away`, `present` or `unknown`), read once by the caller.
+export function awayMergeRefusal(flags, state) {
+  const asked = [...new Set(flags)].filter((f) => Object.hasOwn(WHAT, f));
   if (asked.length === 0) return null;
-  const state = awayState(env, now);
   if (state === 'present') return null;
   const why =
     state === 'away'

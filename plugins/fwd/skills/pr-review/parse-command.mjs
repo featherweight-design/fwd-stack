@@ -276,14 +276,20 @@ function mergeOf(words) {
 // a commit message or a test run that merely MENTIONS a mutation name carries no flag.
 const GRAPHQL_QUEUE = /\b(?:enqueuePullRequest|enablePullRequestAutoMerge)\b/;
 const GRAPHQL_MERGE = /\bmergePullRequest\b/;
+// An argument naming the GraphQL endpoint: `graphql`, `/graphql`, a full URL, with or without a
+// trailing slash or query string.
+const GRAPHQL_PATH = /(?:^|\/)graphql\/?(?:\?.*)?$/;
+// Any other tool (curl, wget, node, python) calling the API's merge or GraphQL path: matched on
+// the text, so it is conservative. A `gh api` call is judged by the finer rules instead.
+const API_HOST_PATH = /api\.github\.com\/(?:\S*\/)?(?:graphql|merge)\b/;
 const FIELD_FLAGS = new Set(['-f', '-F', '--field', '--raw-field']);
 
-// Whether the raw line has a `$` or a backtick outside single quotes: a value the shell fills in,
-// so the text of the query is not the text the hook sees.
-function hasExpansion(cmd) {
+// Whether the raw shell word starting at s[0] has a `$` or a backtick outside single quotes: a
+// value the shell fills in, so the text of the query is not the text the hook sees.
+function wordExpands(s) {
   let quote = null;
-  for (let i = 0; i < cmd.length; i++) {
-    const ch = cmd[i];
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
     if (quote === "'") {
       if (ch === "'") quote = null;
       continue;
@@ -292,13 +298,22 @@ function hasExpansion(cmd) {
       i++;
       continue;
     }
+    if (ch === '$' || ch === '`') return true;
     if (quote === '"') {
       if (ch === '"') quote = null;
-      else if (ch === '$' || ch === '`') return true;
-      continue;
-    }
-    if (ch === "'" || ch === '"') quote = ch;
-    else if (ch === '$' || ch === '`') return true;
+    } else if (/[\s;&|()<>]/.test(ch))
+      return false; // the word ends
+    else if (ch === "'" || ch === '"') quote = ch;
+  }
+  return false;
+}
+
+// Whether any `query=` field word of the line expands. Only that field: a `$VAR` in `-F id="$ID"`
+// or a `--jq "$FILTER"` is not the query's text.
+function queryExpands(cmd) {
+  for (const m of cmd.matchAll(/query=/g)) {
+    const start = cmd.slice(0, m.index).search(/\S*$/);
+    if (wordExpands(cmd.slice(start))) return true;
   }
   return false;
 }
@@ -356,10 +371,13 @@ function apiFlagsIn(cmd, depth) {
       continue;
     }
     const args = ghApiArgs(words);
-    if (!args) continue;
-    if (args.includes('graphql')) {
+    if (!args) {
+      if (API_HOST_PATH.test(words.join(' '))) flags.push('api');
+      continue;
+    }
+    if (args.some((a) => GRAPHQL_PATH.test(a))) {
       const { texts, opaque } = graphqlQueries(args);
-      if (opaque || hasExpansion(cmd)) flags.push('queue');
+      if (opaque || queryExpands(cmd)) flags.push('queue');
       for (const t of texts) {
         if (GRAPHQL_QUEUE.test(t)) flags.push('queue');
         if (GRAPHQL_MERGE.test(t)) flags.push('api');
@@ -376,9 +394,9 @@ function apiFlagsIn(cmd, depth) {
 }
 
 // The away-window flags of a command line: unique, in first-seen order.
-export function mergeFlags(cmd) {
+export function mergeFlags(cmd, groups = parseCommand(cmd)) {
   const flags = [
-    ...parseCommand(cmd).flatMap((g) => g.flags ?? []),
+    ...groups.flatMap((g) => g.flags ?? []),
     ...apiFlagsIn(cmd, 0),
   ];
   return [...new Set(flags)];
@@ -824,6 +842,6 @@ if (isMain(import.meta.url)) {
   for (const g of parsed)
     if (g.pr) console.log([g.action, g.pr, g.repo].filter(Boolean).join(' '));
   // `flags <csv>`: what the away-window rule needs, read apart from the lines above.
-  const flags = mergeFlags(cmd);
+  const flags = mergeFlags(cmd, parsed);
   if (flags.length) console.log(`flags ${flags.join(',')}`);
 }

@@ -35,7 +35,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
-            "if": "Bash(*gh api*graphql*)",
+            "if": "Bash(*graphql*)",
             "timeout": 60,
             "statusMessage": "pr-review: checking the away-window merge rule"
           },

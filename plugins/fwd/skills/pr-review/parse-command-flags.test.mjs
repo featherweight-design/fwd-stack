@@ -107,6 +107,65 @@ test('a readable read-only query carries no flag, and a GraphQL variable in sing
   );
 });
 
+test('every spelling of the GraphQL endpoint is read, with repo flags and extra spaces', () => {
+  for (const ep of [
+    'graphql',
+    '/graphql',
+    'graphql/',
+    'graphql?x=1',
+    'https://api.github.com/graphql',
+    'https://api.github.com/graphql/',
+  ])
+    assert.deepEqual(
+      mergeFlags(`gh api ${ep} -f query='${ENQUEUE}'`),
+      ['queue'],
+      ep,
+    );
+  for (const cmd of [
+    `gh -R o/r api graphql -f query='${DIRECT}'`,
+    `gh --repo o/r api graphql -f query='${DIRECT}'`,
+    `gh  api   graphql  -f   query='${DIRECT}'`,
+  ])
+    assert.deepEqual(mergeFlags(cmd), ['api'], cmd);
+  assert.deepEqual(mergeFlags('gh api /graphql'), ['queue']); // no query to read
+});
+
+test('only the query field decides whether a graphql call is readable', () => {
+  const read = '{ viewer { login } }';
+  for (const cmd of [
+    `gh api graphql -f query='${read}' -F id="$THREAD_ID"`,
+    `gh api graphql -f query='${read}' --jq "$FILTER"`,
+    `gh api graphql -F id="$ID" -f query='${read}' | jq "$FILTER"`,
+    `gh api graphql -f query='query($id: ID!) { node(id: $id) { id } }' -F id="$ID"`,
+  ])
+    assert.deepEqual(mergeFlags(cmd), [], cmd);
+  for (const cmd of [
+    'gh api graphql -f query="$Q"',
+    'gh api graphql -f "query=$Q"',
+    'gh api graphql --field=query=$Q',
+    `gh api graphql -F id="$ID" -f query="$(cat q.graphql)"`,
+  ])
+    assert.deepEqual(mergeFlags(cmd), ['queue'], cmd);
+});
+
+test('another tool calling the API merge or GraphQL path reads as api; other paths do not', () => {
+  const host = 'https://api.github.com';
+  for (const cmd of [
+    `curl -X PUT ${host}/repos/o/r/pulls/4/` + 'merge',
+    `wget --method=POST ${host}/graphql`,
+    `node -e "fetch('${host}/graphql')"`,
+    `python3 -c "import requests; requests.post('${host}/graphql')"`,
+  ])
+    assert.deepEqual(mergeFlags(cmd), ['api'], cmd);
+  for (const cmd of [
+    `curl ${host}/repos/o/r/pulls/4`,
+    `curl ${host}/user`,
+    'curl https://example.com/graphql',
+    `gh api ${host}/graphql -f query='{ viewer { login } }'`,
+  ])
+    assert.deepEqual(mergeFlags(cmd), [], cmd);
+});
+
 test('mutation names count only in a gh api graphql call', () => {
   for (const cmd of [
     'grep -rn enqueuePullRequest src',
