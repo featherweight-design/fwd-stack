@@ -165,10 +165,26 @@ test('gh api is found behind any wrapper words', () => {
 
 test('an expanding field word counts as opaque unless its literal name is not query', () => {
   const read = "-f query='{viewer{login}}'";
-  for (const extra of ['-f "$X"', '-F "$X"', '--field "$X"', '-f "query=$Q"'])
+  for (const extra of [
+    '-f "$X"',
+    '-F "$X"',
+    '--field "$X"',
+    '-f "query=$Q"',
+    '-if "$X"',
+    '"-f" "$X"',
+  ])
     assert.deepEqual(mergeFlags(`gh api graphql ${read} ${extra}`), ['queue']);
   for (const extra of ['-F id="$THREAD_ID"', '-f note=$(date)', '-F n=5'])
     assert.deepEqual(mergeFlags(`gh api graphql ${read} ${extra}`), []);
+});
+
+test('an expanding query= word is opaque however its flag is written', () => {
+  for (const cmd of [
+    'gh api graphql -if query="$Q"',
+    'gh api graphql "-f" query="$Q"',
+    'gh api graphql --input=- query=$Q',
+  ])
+    assert.deepEqual(mergeFlags(cmd), ['queue'], cmd);
 });
 
 test('another tool calling the API merge or GraphQL path reads as api; other paths do not', () => {

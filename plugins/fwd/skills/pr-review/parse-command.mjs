@@ -313,14 +313,19 @@ function wordExpands(s) {
 // name is itself an expansion, or is `query`, may hold the query, so it counts. Other words of the
 // line (`--jq "$FILTER"`) are not fields.
 function fieldExpands(cmd) {
+  // The flag may be grouped (`-if`) or quoted (`"-f"`).
   for (const m of cmd.matchAll(
-    /(?:^|\s)(?:--field|--raw-field|-f|-F)(?:=|\s*)/g,
+    /(?:^|\s)["']?(?:--field|--raw-field|-[A-Za-z]*[fF])["']?(?:=|\s*)/g,
   )) {
     const word = cmd.slice(m.index + m[0].length);
     if (!wordExpands(word)) continue;
     const name = word.match(/^["']?([A-Za-z_][\w.[\]-]*)=/)?.[1];
     if (name === undefined || name === 'query') return true;
   }
+  // Whatever the flag looks like, a word holding `query=` that expands may be the query.
+  for (const m of cmd.matchAll(/query=/g))
+    if (wordExpands(cmd.slice(cmd.slice(0, m.index).search(/\S*$/))))
+      return true;
   return false;
 }
 
