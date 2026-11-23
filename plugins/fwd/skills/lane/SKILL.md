@@ -117,6 +117,7 @@ to a log, which can never wake a session.
 - **Open every message to the orchestrator with one status line:** `done: <what>`,
   `blocked: <on what>` or `needs-decision: <the decision and your recommended default>`. Put the PR
   number and state after the verb (`done: PR #42 merged`). A plain progress note may have no verb.
+  Write the verb as plain text, not bold or in backticks.
   It is a convention, not enforced; it lets the orchestrator triage by the first line.
 - **Message the orchestrator once per milestone:** PR opened, red CI you cannot fix, PR merged,
   blocked, rotated. No running updates.
