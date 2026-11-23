@@ -96,6 +96,16 @@ that decides it:
 - **An audit:** which checkout it read. Once, a fresh lane audited a checkout five days stale.
 - **A suggested follow-up:** one grep or one read. "Worth a one-line fix" is a claim, not a task.
 
+Lanes open each message with a status line (`lane` §3), which `status-line.mjs` can parse. Read
+the first line and act on the verb:
+
+- `done:` is a claim. Verify it at the system of record, as above, before relaying it.
+- `blocked:` means unblock the lane or reroute the work. Do not leave it waiting.
+- `needs-decision:` means decide inside the approved scope and log the ruling, or, when the
+  decision is the user's, put a to-do for the user on the roadmap with the lane's recommended
+  default.
+- No verb is a progress note; no action is needed.
+
 ## 4 · Keep a ruling log and the roadmap
 
 The ruling log is a dated, append-only file. Each entry records the decision, who made it (the user,
