@@ -58,22 +58,48 @@ export function checksState(rollup = []) {
     c.__typename === 'StatusContext'
       ? !['PENDING', 'EXPECTED', ''].includes(result(c))
       : (c.status ?? '').toUpperCase() === 'COMPLETED';
+  // Deliberate: a red check is not news until every check has finished, so pending wins first.
   if (!rollup.every(done)) return 'pending';
   return rollup.some((c) => FAILED.has(result(c))) ? 'failure' : 'success';
 }
 
-/** What a poll remembers about each open PR, by number. `talk` counts reviews plus comments. */
-export function snapshots(prs) {
+// Talk from the user's own login or a [bot] author is not news to the orchestrator.
+const fromOthers = (me) => (x) => {
+  const login = (x?.author?.login ?? '').toLowerCase();
+  return !login.endsWith('[bot]') && (!me || login !== me.toLowerCase());
+};
+
+/**
+ * What a poll remembers about each open PR, by number. `talk` counts reviews plus comments by
+ * anyone but `me` and bots. Drafts and held PRs get no snapshot, so they raise no events.
+ */
+export function snapshots(prs, me = null) {
   return Object.fromEntries(
-    prs.map((p) => [
-      p.number,
-      {
-        title: p.title,
-        checks: checksState(p.statusCheckRollup),
-        talk: (p.reviews?.length ?? 0) + (p.comments?.length ?? 0),
-      },
-    ]),
+    prs
+      .filter((p) => !p.isDraft && !held(p))
+      .map((p) => [
+        p.number,
+        {
+          title: p.title,
+          checks: checksState(p.statusCheckRollup),
+          talk:
+            (p.reviews ?? []).filter(fromOthers(me)).length +
+            (p.comments ?? []).filter(fromOthers(me)).length,
+        },
+      ]),
   );
+}
+
+export const MAX_MISS = 5;
+export const MAX_LOOKUPS = 5;
+
+/** The remembered PRs missing from the open list to look up this poll, the fewest misses first. */
+export function lookupBatch(prev = {}, open = [], cap = MAX_LOOKUPS) {
+  const isOpen = new Set(open.map(String));
+  return Object.keys(prev)
+    .filter((n) => !isOpen.has(n))
+    .sort((a, b) => (prev[a].miss ?? 0) - (prev[b].miss ?? 0))
+    .slice(0, cap);
 }
 
 /**
@@ -106,10 +132,20 @@ export function transitions(prev = {}, cur = {}, resolved = {}) {
   return events;
 }
 
-/** The snapshots to store: the open PRs, plus any that vanished without a lookup result. */
-export function nextSnapshots(prev = {}, cur = {}, resolved = {}) {
-  const keep = Object.entries(prev).filter(([n]) => !cur[n] && !resolved[n]);
-  return { ...Object.fromEntries(keep), ...cur };
+/**
+ * The snapshots to store: the open PRs, plus those not seen this poll. A PR in `tried` (looked up
+ * as gone) that came back unresolved gains a `miss`, and is dropped after MAX_MISS of them so a
+ * lookup that never resolves is not retried forever.
+ */
+export function nextSnapshots(prev = {}, cur = {}, resolved = {}, tried = []) {
+  const out = {};
+  for (const [n, was] of Object.entries(prev)) {
+    if (cur[n] || resolved[n]) continue;
+    if (!tried.map(String).includes(n)) out[n] = was;
+    else if ((was.miss ?? 0) + 1 < MAX_MISS)
+      out[n] = { ...was, miss: (was.miss ?? 0) + 1 };
+  }
+  return { ...out, ...cur };
 }
 
 const WORDS = {
@@ -122,9 +158,8 @@ const WORDS = {
 export const describeEvent = (e) =>
   `  #${e.number} ${WORDS[e.kind]}: ${e.title}`;
 
-/** The one class a wake carries: error, then event, then quiet, then the timer alone. */
-export function wakeClass({ failed = false, events = [], stalled = [] } = {}) {
-  if (failed) return 'error';
+/** The class of a poll wake: event, then quiet, then the timer alone. Errors are reported directly. */
+export function wakeClass({ events = [], stalled = [] } = {}) {
   if (events.length) return 'event';
   return stalled.length ? 'quiet' : 'heartbeat';
 }

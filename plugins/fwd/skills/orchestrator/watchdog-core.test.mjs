@@ -6,6 +6,9 @@ import {
   checksState,
   describeEvent,
   heldPrs,
+  lookupBatch,
+  MAX_LOOKUPS,
+  MAX_MISS,
   nextSnapshots,
   snapshots,
   stalledPrs,
@@ -87,6 +90,7 @@ test('checksState names the checks: none, pending, success or failure', () => {
     [[], 'none'],
     [[run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'SKIPPED')], 'success'],
     [[run('COMPLETED', 'SUCCESS'), run('IN_PROGRESS', '')], 'pending'],
+    // Deliberate: pending wins over a red check until every check has finished.
     [[run('COMPLETED', 'FAILURE'), run('QUEUED', '')], 'pending'],
     [[run('COMPLETED', 'SUCCESS'), run('COMPLETED', 'FAILURE')], 'failure'],
     [[run('COMPLETED', 'CANCELLED')], 'failure'],
@@ -191,11 +195,55 @@ test('snapshots count reviews and comments and read the checks', () => {
   );
 });
 
-test('wakeClass: error, then event, then quiet, then the timer alone', () => {
+test('snapshots skip drafts and held PRs, so they raise no events', () => {
+  const base = { title: 't', statusCheckRollup: [] };
+  const out = snapshots([
+    { ...base, number: 1 },
+    { ...base, number: 2, isDraft: true },
+    { ...base, number: 3, labels: [{ name: 'hold' }] },
+    { ...base, number: 4, labels: [{ name: 'bug' }] },
+  ]);
+  assert.deepEqual(Object.keys(out), ['1', '4']);
+});
+
+test('snapshots do not count the user or bot authors as new talk', () => {
+  const by = (login) => ({ author: login ? { login } : undefined });
+  const p = {
+    number: 1,
+    title: 't',
+    reviews: [by('me'), by('ci-helper[bot]'), by('other')],
+    comments: [by('Me'), by('dependabot[bot]'), by('other'), by(null)],
+  };
+  const talk = (me) => snapshots([p], me)[1].talk;
+  assert.equal(talk('me'), 3); // other review, other comment, authorless comment
+  assert.equal(talk(null), 5); // login lookup failed: only bots are filtered
+});
+
+test('a gone PR that never resolves is dropped after five misses, five lookups at a time', () => {
+  let snaps = { 1: snap('success') };
+  for (let i = 1; i < MAX_MISS; i++) {
+    assert.deepEqual(lookupBatch(snaps, []), ['1']);
+    snaps = nextSnapshots(snaps, {}, {}, ['1']);
+    assert.equal(snaps[1].miss, i);
+  }
+  assert.deepEqual(nextSnapshots(snaps, {}, {}, ['1']), {});
+  // Untried PRs are kept as they were; an open PR is never looked up.
+  assert.deepEqual(nextSnapshots(snaps, {}, {}, []), snaps);
+  assert.deepEqual(lookupBatch({ 1: snap('success') }, [1]), []);
+  const many = Object.fromEntries(
+    [1, 2, 3, 4, 5, 6, 7].map((n) => [n, snap('success')]),
+  );
+  assert.equal(lookupBatch(many, []).length, MAX_LOOKUPS);
+  assert.deepEqual(
+    lookupBatch({ 1: { ...snap('x'), miss: 3 }, 2: snap('x') }, []),
+    ['2', '1'],
+  );
+});
+
+test('wakeClass: event, then quiet, then the timer alone', () => {
   const ev = [{ number: 1, kind: 'merged' }];
   const st = [{ number: 2 }];
   const cases = [
-    [{ failed: true, events: ev, stalled: st }, 'error'],
     [{ events: ev, stalled: st }, 'event'],
     [{ stalled: st }, 'quiet'],
     [{}, 'heartbeat'],

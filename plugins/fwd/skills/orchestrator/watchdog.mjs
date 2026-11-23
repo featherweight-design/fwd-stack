@@ -25,6 +25,7 @@ import { pluginDataDir } from '../../lib/plugin-data.mjs';
 import {
   describeEvent,
   heldPrs,
+  lookupBatch,
   nextSnapshots,
   snapshots,
   stalledPrs,
@@ -58,7 +59,7 @@ const openPrs = () => {
         '--state',
         'open',
         '--json',
-        'number,title,updatedAt,isDraft,headRefName,labels,statusCheckRollup,reviews,comments',
+        'number,title,updatedAt,isDraft,headRefName,labels',
         '--limit',
         String(LIMIT),
         ...(repo ? ['--repo', repo] : []),
@@ -73,6 +74,43 @@ const openPrs = () => {
     );
   lastPrs = prs;
   return prs;
+};
+
+// The list above stays lean. Checks, reviews and comments are heavy, so they come from a second
+// call capped at RICH_LIMIT; a PR past the cap keeps its last snapshot and raises no event.
+const RICH_LIMIT = 100;
+const richPrs = () =>
+  JSON.parse(
+    execFileSync(
+      'gh',
+      [
+        'pr',
+        'list',
+        '--state',
+        'open',
+        '--json',
+        'number,title,isDraft,labels,statusCheckRollup,reviews,comments',
+        '--limit',
+        String(RICH_LIMIT),
+        ...(repo ? ['--repo', repo] : []),
+      ],
+      { encoding: 'utf8', timeout: 60_000 },
+    ),
+  );
+
+// The current login, looked up once per process. On failure only bots are filtered out.
+let me;
+const login = () => {
+  if (me !== undefined) return me;
+  try {
+    me = execFileSync('gh', ['api', 'user', '-q', '.login'], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    }).trim();
+  } catch {
+    me = null;
+  }
+  return me;
 };
 
 const laneTable = () => {
@@ -127,32 +165,31 @@ const readSeen = () => {
   }
 };
 
-// A PR that left the open list: merged or closed. A failed lookup returns nothing, so the PR is
-// kept in the snapshot and tried again next poll.
-const resolveGone = (prev, cur) => {
+// The PRs in `tried` left the open list: merged or closed. A failed or still-open lookup returns
+// nothing for that PR, and nextSnapshots counts the miss.
+const resolveGone = (tried) => {
   const out = {};
-  for (const n of Object.keys(prev))
-    if (!cur[n])
-      try {
-        const v = JSON.parse(
-          execFileSync(
-            'gh',
-            [
-              'pr',
-              'view',
-              n,
-              '--json',
-              'state',
-              ...(repo ? ['--repo', repo] : []),
-            ],
-            { encoding: 'utf8', timeout: 30_000 },
-          ),
-        );
-        if (v.state === 'MERGED') out[n] = 'merged';
-        else if (v.state === 'CLOSED') out[n] = 'closed';
-      } catch {
-        // retried next poll
-      }
+  for (const n of tried)
+    try {
+      const v = JSON.parse(
+        execFileSync(
+          'gh',
+          [
+            'pr',
+            'view',
+            n,
+            '--json',
+            'state',
+            ...(repo ? ['--repo', repo] : []),
+          ],
+          { encoding: 'utf8', timeout: 30_000 },
+        ),
+      );
+      if (v.state === 'MERGED') out[n] = 'merged';
+      else if (v.state === 'CLOSED') out[n] = 'closed';
+    } catch {
+      // retried next poll
+    }
   return out;
 };
 
@@ -165,10 +202,14 @@ for (;;) {
     const seen = readSeen();
     const stalled = unreported(stalledPrs(prs, Date.now(), stall), seen);
     for (const p of stalled) seen[p.number] = p.updatedAt;
-    const cur = snapshots(prs);
-    const resolved = resolveGone(seen.snap ?? {}, cur);
+    const cur = snapshots(richPrs(), login());
+    const tried = lookupBatch(
+      seen.snap,
+      prs.map((p) => p.number),
+    );
+    const resolved = resolveGone(tried);
     const events = transitions(seen.snap, cur, resolved);
-    const snap = nextSnapshots(seen.snap, cur, resolved);
+    const snap = nextSnapshots(seen.snap, cur, resolved, tried);
     if (stalled.length || JSON.stringify(snap) !== JSON.stringify(seen.snap)) {
       mkdirSync(stateDir, { recursive: true });
       writeFileSync(seenFile, `${JSON.stringify({ ...seen, snap })}\n`);
