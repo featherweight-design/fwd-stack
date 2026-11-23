@@ -148,7 +148,7 @@ the orchestrator rotates you, which happens only while the user is present:
 
 1. Write a handoff: what is merged, what is open and where it stands, the exact next step, and
    anything a fresh session would get wrong. Put it where the project keeps handoffs (see
-   `.claude/fwd/lane.md`), never only in chat.
+   `.claude/fwd/lane.md`), never only in chat. The `stow` skill is the short form of this step.
 2. Give the user a restart prompt headed `PROMPT FOR: <new session, replaces lane XX (area)>`, built
    on the `run-project` brief template. Its first lines are the go: the new lane starts at once and
    sends the orchestrator its context size and plan, never a question to the user.
