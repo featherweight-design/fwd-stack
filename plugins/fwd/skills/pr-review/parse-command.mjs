@@ -236,9 +236,15 @@ function mergeOf(words) {
       j++;
       continue;
     }
-    // `--auto` and `--admin` change WHEN or HOW the merge happens, whatever value is attached.
-    const named = a.match(/^--(auto|admin)(?:=|$)/);
-    if (named && !flags.includes(named[1])) flags.push(named[1]);
+    // `--auto` and `--admin` are booleans. Bare, `=true`, `=1` or any other value turns them on;
+    // only `=false` is a no-op. A value the hook cannot judge is read as on.
+    const named = a.match(/^--(auto|admin)(?:=(.*))?$/s);
+    if (
+      named &&
+      named[2]?.toLowerCase() !== 'false' &&
+      !flags.includes(named[1])
+    )
+      flags.push(named[1]);
     if (BOOLEAN_FLAGS.has(a) || isRepoFlag(a) || /^--[a-z-]+=/.test(a))
       continue;
     if (a.startsWith('-') || a.includes('$')) return unreadable;
@@ -262,19 +268,119 @@ function mergeOf(words) {
     : unreadable;
 }
 
-// The GraphQL mutations that put a PR in a merge queue or switch on auto-merge. They name a PR by
-// node id, so they cannot be attributed to a number; the hook only needs to know they are there.
-// Counted on the text with quotes and backslashes removed, like the other mention checks.
-export function queueMention(cmd) {
-  const plain = cmd.replace(/\\\n/g, ' ').replace(/['"\\]/g, ' ');
-  return /\b(?:enqueuePullRequest|enablePullRequestAutoMerge)\b/.test(plain);
+// ---- the away-window flags ---------------------------------------------------------------------
+// What the away rule needs besides a PR number: `auto` and `admin` from a `gh pr merge`; `queue`
+// from a GraphQL mutation that enqueues a PR or switches on auto-merge, or from a `gh api graphql`
+// call whose query cannot be read here; `api` from a merge made through the API instead
+// (GraphQL `mergePullRequest`, REST PUT .../pulls/N/merge). Only a `gh api` command counts: a grep,
+// a commit message or a test run that merely MENTIONS a mutation name carries no flag.
+const GRAPHQL_QUEUE = /\b(?:enqueuePullRequest|enablePullRequestAutoMerge)\b/;
+const GRAPHQL_MERGE = /\bmergePullRequest\b/;
+const FIELD_FLAGS = new Set(['-f', '-F', '--field', '--raw-field']);
+
+// Whether the raw line has a `$` or a backtick outside single quotes: a value the shell fills in,
+// so the text of the query is not the text the hook sees.
+function hasExpansion(cmd) {
+  let quote = null;
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i];
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      continue;
+    }
+    if (ch === '\\') {
+      i++;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === '$' || ch === '`') return true;
+      continue;
+    }
+    if (ch === "'" || ch === '"') quote = ch;
+    else if (ch === '$' || ch === '`') return true;
+  }
+  return false;
 }
 
-// The away-mode flags in a command line: `auto`, `admin` from any readable merge, `queue` from a
-// queue or auto-merge mutation. Unique, in first-seen order.
+// The arguments after `gh [repo flags] api`, when `gh` is the command itself; null otherwise.
+function ghApiArgs(words) {
+  let at = 0;
+  while (
+    at < words.length &&
+    (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[at]) || PREFIXES.has(words[at]))
+  )
+    at++;
+  if (words[at]?.split('/').at(-1) !== 'gh') return null;
+  let i = at + 1;
+  while (i < words.length && isRepoFlag(words[i]))
+    i += words[i] === '-R' || words[i] === '--repo' ? 2 : 1;
+  return words[i] === 'api' ? words.slice(i + 1) : null;
+}
+
+// The `query=` field values of a `gh api graphql` call, and whether any of the query is out of
+// sight: read from a file or stdin (`@file`, `--input`), or no `query=` field on the line at all.
+function graphqlQueries(args) {
+  const texts = [];
+  let opaque = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--input' || a.startsWith('--input=')) opaque = true;
+    let field = null;
+    if (FIELD_FLAGS.has(a)) field = args[++i] ?? '';
+    else field = a.match(/^(?:--field=|--raw-field=|-[fF])(.+)$/s)?.[1] ?? null;
+    if (field !== null && field.startsWith('query=')) {
+      const value = field.slice('query='.length);
+      texts.push(value);
+      if (value.startsWith('@')) opaque = true;
+    }
+  }
+  return { texts, opaque: opaque || texts.length === 0 };
+}
+
+const isPutMethod = (args) =>
+  args.some((a, i) => {
+    const m =
+      a === '-X' || a === '--method'
+        ? args[i + 1]
+        : a.match(/^(?:--method=|-X)(.+)$/)?.[1];
+    return m?.toUpperCase() === 'PUT';
+  });
+
+function apiFlagsIn(cmd, depth) {
+  const flags = [];
+  for (const words of simpleCommands(cmd)) {
+    const inner = depth < 3 ? innerCommandLine(words) : null;
+    if (inner !== null) {
+      flags.push(...apiFlagsIn(inner, depth + 1));
+      continue;
+    }
+    const args = ghApiArgs(words);
+    if (!args) continue;
+    if (args.includes('graphql')) {
+      const { texts, opaque } = graphqlQueries(args);
+      if (opaque || hasExpansion(cmd)) flags.push('queue');
+      for (const t of texts) {
+        if (GRAPHQL_QUEUE.test(t)) flags.push('queue');
+        if (GRAPHQL_MERGE.test(t)) flags.push('api');
+      }
+    } else if (
+      isPutMethod(args) &&
+      args.some((a) =>
+        /(?:^|\/)repos\/[^/]+\/[^/]+\/pulls\/[^/]+\/merge$/.test(a),
+      )
+    )
+      flags.push('api');
+  }
+  return flags;
+}
+
+// The away-window flags of a command line: unique, in first-seen order.
 export function mergeFlags(cmd) {
-  const flags = parseCommand(cmd).flatMap((g) => g.flags ?? []);
-  if (queueMention(cmd)) flags.push('queue');
+  const flags = [
+    ...parseCommand(cmd).flatMap((g) => g.flags ?? []),
+    ...apiFlagsIn(cmd, 0),
+  ];
   return [...new Set(flags)];
 }
 

@@ -35,6 +35,9 @@ export function awayUntil(env = process.env, now = Date.now()) {
 // cannot be read or parsed (a torn write, a hand edit, a permissions fault). A caller that adds
 // refusals treats `unknown` like `away`: a damaged file must not silently re-enable what an open
 // window forbids. A caller must never use `unknown` to relax anything.
+// This differs from awayUntil on purpose. awayUntil reads a damaged file as present, the safe
+// direction for rotation and stopping for context (a damaged file never strands a lane). The merge
+// rule adds refusals, so there the safe direction is the opposite: unknown reads as open.
 export function awayState(env = process.env, now = Date.now()) {
   let raw;
   try {

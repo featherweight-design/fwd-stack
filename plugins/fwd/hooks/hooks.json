@@ -35,14 +35,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
-            "if": "Bash(*enqueuePullRequest*)",
-            "timeout": 60,
-            "statusMessage": "pr-review: checking the away-window merge rule"
-          },
-          {
-            "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
-            "if": "Bash(*AutoMerge*)",
+            "if": "Bash(*gh api*graphql*)",
             "timeout": 60,
             "statusMessage": "pr-review: checking the away-window merge rule"
           },

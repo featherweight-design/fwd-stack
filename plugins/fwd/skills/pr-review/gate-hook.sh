@@ -50,23 +50,14 @@ if printf '%s\n' "$gated" | grep -qx 'unreadable'; then
   exit 0
 fi
 
-# The away-window rule: while the user is away, a merge by --auto, --admin or a merge queue (or the
-# GraphQL mutations for one) is denied. It runs here, from the copy beside this script, so a newer
-# or older gate cannot skip it, and it only ever adds a refusal. The parser prints `flags <csv>`.
-# A failure of the check itself (node crashing) is a denial too: this stays fail-closed.
+# The away-window flags (`--auto`, `--admin`, a queue or API merge form) come from the parser on
+# their own `flags <csv>` line. They are taken OUT of the list before the loop below, so that line
+# can never be read as an action, and they go to the gate as `--merge-flags`: the gate is the one
+# place that decides whether the window forbids them.
 flags=$(printf '%s\n' "$gated" | sed -n 's/^flags //p' | paste -sd, -)
-if [ -n "$flags" ]; then
-  if ! away_out=$(node "$here/away-merge.mjs" "$flags" 2>&1); then
-    jq -nc --arg reason "$away_out" '{
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: ("pr-review gate (away window):\n" + $reason)
-      }
-    }'
-    exit 0
-  fi
-fi
+gated=$(printf '%s\n' "$gated" | grep -v '^flags ' || true)
+extra=()
+[ -n "$flags" ] && extra=(--merge-flags "$flags")
 
 # Run the NEWEST installed gate, resolved now rather than when the session loaded its hooks, so a
 # gate fix reaches a running session without /reload-plugins. gate-path.mjs only trusts
@@ -77,6 +68,9 @@ fi
 bundled="$here/pr-gate.mjs"
 gate=$(node "$here/gate-path.mjs" "$bundled" 2>/dev/null) || gate="$bundled"
 [ -n "$gate" ] && [ -f "$gate" ] || gate="$bundled"
+# An installed gate from before the away rule ignores --merge-flags, so a flagged line is always
+# judged by the gate bundled beside this script.
+[ -n "$flags" ] && gate="$bundled"
 
 # Where the gated commands run: `cd <dir>`, `cd?` (unknown), or neither (the session's directory).
 run_dir=""
@@ -96,10 +90,10 @@ while read -r action pr repo; do
     # still starts in the command's own directory when it exists, for its push-landed check.
     if [ -n "$run_dir" ] && [ -d "$run_dir" ]; then
       ran=$gate
-      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" --repo "$repo" 2>&1)
+      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" --repo "$repo" ${extra[@]+"${extra[@]}"} 2>&1)
     else
       ran=$gate
-      out=$(node "$gate" "$pr" --action "$action" --repo "$repo" 2>&1)
+      out=$(node "$gate" "$pr" --action "$action" --repo "$repo" ${extra[@]+"${extra[@]}"} 2>&1)
     fi
   elif [ $dir_unknown -eq 1 ]; then
     out="this command changes directory in a way the gate cannot follow (a cd with no path, cd -, an option or redirection on the cd, pushd or popd, or a cd sharing a subshell or pipeline with the $action), so it cannot tell which repository PR #$pr is in. Name it in the command: --repo owner/name, or repos/<owner>/<name>/pulls/$pr in an API path."
@@ -107,18 +101,25 @@ while read -r action pr repo; do
   elif [ -n "$run_dir" ]; then
     if [ -d "$run_dir" ]; then
       ran=$gate
-      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" 2>&1)
+      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" ${extra[@]+"${extra[@]}"} 2>&1)
     else
       out="the command runs in $run_dir, which does not exist, so the gate cannot tell which repository PR #$pr is in. Name it in the command: --repo owner/name."
       false
     fi
   else
     ran=$gate
-    out=$(node "$gate" "$pr" --action "$action" 2>&1)
+    out=$(node "$gate" "$pr" --action "$action" ${extra[@]+"${extra[@]}"} 2>&1)
   fi
   status=$?
   [ $status -ne 0 ] && break
 done <<<"$gated"
+# Flags but no PR to judge (a GraphQL call, an unreadable query): the gate judges the away rule
+# alone. If it cannot run, this denies, like every other gate call.
+if [ $status -eq 0 ] && [ -n "$flags" ] && [ -z "$ran" ]; then
+  ran=$gate
+  out=$(node "$gate" --action merge --flags-only "${extra[@]}" 2>&1)
+  status=$?
+fi
 [ $status -eq 0 ] && exit 0
 
 # Name the gate that ran, so a denial from a stale or unexpected copy is easy to spot.

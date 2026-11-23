@@ -3,18 +3,17 @@
 // merge without a green check read at that moment are closed: auto-merge, an admin bypass and a
 // merge queue all land a PR later, or past a failing check, on a decision made earlier.
 //
-//   node away-merge.mjs <flag>[,<flag>...]    flags: auto, admin, queue
-//
-// Exit 1 with the reason on stdout when the window is open (or its file is damaged) and a flag is
-// present; exit 0 otherwise. This rule only ever adds a refusal. It never allows anything the
-// gate would refuse, and a present user sees no change at all.
+// pr-gate.mjs is the one caller: the hook hands it the flags (`--merge-flags auto,admin,queue,api`)
+// and the gate refuses. This rule only ever adds a refusal. It never allows anything the gate would
+// refuse, and a present user sees no change at all.
 import { awayState } from '../../lib/away.mjs';
-import { isMain } from '../../lib/is-main.mjs';
 
 const WHAT = {
   auto: '`--auto` (auto-merge)',
   admin: '`--admin` (bypassing the merge requirements)',
-  queue: 'a merge queue or auto-merge mutation',
+  queue:
+    'a merge queue or auto-merge mutation, or a GraphQL call whose query cannot be read',
+  api: 'a merge made through the API instead of `gh pr merge` (GraphQL mergePullRequest, REST PUT .../merge)',
 };
 
 // The refusal for these flags, or null when the merge may go on to the gate's other rules.
@@ -34,12 +33,4 @@ export function awayMergeRefusal(flags, env = process.env, now = Date.now()) {
     'or merge normally (no auto, admin or queue) once CI is green on the current head. ' +
     'The away window never widens what a merge may do.'
   );
-}
-
-if (isMain(import.meta.url)) {
-  const refusal = awayMergeRefusal((process.argv[2] ?? '').split(','));
-  if (refusal) {
-    console.log(`BLOCKED by pr-review:\n  - ${refusal}`);
-    process.exit(1);
-  }
 }

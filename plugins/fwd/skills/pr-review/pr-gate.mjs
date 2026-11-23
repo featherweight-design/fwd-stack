@@ -83,10 +83,10 @@ if (action === 'rerequest') {
 }
 
 // While the user is away, a merge by auto-merge, admin bypass or queue is refused before anything
-// is read from GitHub. The hook checks this itself (a stale gate copy must not skip it); this is the
-// same rule for a direct run. It only adds a refusal: nothing below is relaxed by it.
+// is read from GitHub. The hook passes `--merge-flags`, so this is the rule's one owner. It only
+// adds a refusal: nothing below is relaxed by it.
 const mergeFlags = args.includes('--merge-flags')
-  ? (args[args.indexOf('--merge-flags') + 1] ?? '').split(',')
+  ? (args[args.indexOf('--merge-flags') + 1] ?? '').split(',').filter(Boolean)
   : [];
 if (action === 'merge') {
   const refusal = awayMergeRefusal(mergeFlags);
@@ -99,6 +99,9 @@ if (action === 'merge') {
     console.log(
       `away window open until ${new Date(until).toISOString()}: merging only on CI that is green on the head now`,
     );
+  // A flag-only call (a GraphQL or API merge form that names no PR the gate can read) has nothing
+  // else to judge: the away rule was the whole question.
+  if (args.includes('--flags-only') && mergeFlags.length > 0) process.exit(0);
 }
 
 const run = (args) =>
