@@ -2,15 +2,6 @@
 // touched it (a push, a review, a comment) for `stallMinutes`: the sign a lane has stopped,
 // or is waiting on something that will never notify it.
 
-/**
- * The stalled PRs not already reported. `seen` maps a PR number to the `updatedAt` it was last
- * reported at: a PR still quiet since then has been handed to the orchestrator once, and reporting
- * it on every re-arm would end each watch on its first poll. Any new activity reports it again.
- */
-export function unreported(stalled, seen = {}) {
-  return stalled.filter((p) => seen[p.number] !== p.updatedAt);
-}
-
 // A PR held on purpose carries this label: it is not a lane that stopped.
 export const HOLD_LABEL = 'hold';
 export const held = (p) =>
@@ -174,3 +165,76 @@ export function wakeClass({ events = [], stalled = [] } = {}) {
   if (events.length) return 'event';
   return stalled.length ? 'quiet' : 'heartbeat';
 }
+
+// The escalation ladder for a PR that stays quiet. Each rung is a stage of the same stall, and the
+// watchdog only names it: the orchestrator does the nudging, the checking and the flagging.
+export const NUDGE_MINUTES = 30;
+export const SECOND_NUDGE_MINUTES = 60;
+export const STALLED_MINUTES = 120;
+export const FLAG_RUNG = 4;
+
+export const RUNGS = [
+  {
+    rung: 1,
+    minutes: NUDGE_MINUTES,
+    text: 'nudge: tell the lane this PR has been quiet and ask for a one-line status',
+  },
+  {
+    rung: 2,
+    minutes: SECOND_NUDGE_MINUTES,
+    text: 'second nudge: tell the lane again, ask what it is blocked on, and say you will check its session next',
+  },
+  {
+    rung: 3,
+    minutes: STALLED_MINUTES,
+    text: 'stalled: check the lane session yourself, then unblock, restart or reassign it',
+  },
+  {
+    rung: FLAG_RUNG,
+    minutes: null,
+    text: 'flag for the user: list it as a user item and a run-report line; the lane did not recover',
+  },
+];
+
+/** The ladder memory from the state file, or {} when it is missing or damaged. */
+export function readLadder(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw).filter(
+      ([, e]) =>
+        Number.isInteger(e?.rung) &&
+        e.rung >= 1 &&
+        e.rung <= FLAG_RUNG &&
+        typeof e.at === 'string',
+    ),
+  );
+}
+
+/**
+ * Where each stalled PR stands. `ladder` maps a PR number to { rung, at }: the last rung reported
+ * and the `updatedAt` it was reported at. Returns `due`, the PRs reaching a new rung this poll
+ * (with `rung` set), and `next`, the ladder to store. A PR whose `updatedAt` moved, that raised an
+ * event (`reset` numbers), or that is no longer stalled starts over. Rung 4 is the next wake after
+ * rung 3, however soon: it means a re-armed watch found the PR still quiet.
+ */
+export function climb(stalled, ladder = {}, reset = []) {
+  const due = [];
+  const next = {};
+  for (const p of stalled) {
+    const was = ladder[p.number];
+    const prior =
+      was?.at === p.updatedAt && !reset.includes(p.number) ? was.rung : 0;
+    const reached = RUNGS.filter(
+      (r) => r.minutes !== null && p.quietMinutes >= r.minutes,
+    ).length;
+    const rung = prior === 3 ? FLAG_RUNG : reached;
+    if (Math.max(rung, prior) > 0)
+      next[p.number] = { rung: Math.max(rung, prior), at: p.updatedAt };
+    if (rung > prior) due.push({ ...p, rung });
+  }
+  return { due, next };
+}
+
+/** The lines a wake prints for a PR on a rung: the instruction for the orchestrator. */
+export const describeRung = (p) =>
+  `    rung ${p.rung}: ${RUNGS[p.rung - 1].text}`;

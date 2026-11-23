@@ -4,6 +4,9 @@ import assert from 'node:assert/strict';
 
 import {
   checksState,
+  climb,
+  describeRung,
+  FLAG_RUNG,
   describeEvent,
   heldPrs,
   lookupBatch,
@@ -11,10 +14,10 @@ import {
   MAX_MISS,
   nextSnapshots,
   quietedNumbers,
+  readLadder,
   snapshots,
   stalledPrs,
   transitions,
-  unreported,
   wakeClass,
 } from './watchdog-core.mjs';
 
@@ -73,13 +76,6 @@ test('a PR labelled hold is waiting on purpose, not stalled', () => {
     ).map((p) => p.number),
     [6],
   );
-});
-
-test('a stalled PR is reported once until something touches it again', () => {
-  const stalled = stalledPrs([pr(5, '2026-10-27T19:00:00Z')], now);
-  assert.equal(unreported(stalled).length, 1);
-  assert.deepEqual(unreported(stalled, { 5: '2026-10-27T19:00:00Z' }), []);
-  assert.equal(unreported(stalled, { 5: '2026-10-27T18:00:00Z' }).length, 1);
 });
 
 const run = (status, conclusion) => ({ status, conclusion });
@@ -271,4 +267,68 @@ test('describeEvent reads as one line naming the PR and the change', () => {
     describeEvent({ number: 7, title: 'Add x', kind: 'closed' }),
     '  #7 closed without merging: Add x',
   );
+});
+
+const quiet = (number, minutes, at = 'u1') => ({
+  number,
+  updatedAt: at,
+  quietMinutes: minutes,
+});
+
+test('climb: a PR reaches rungs 1 to 3 as it stays quiet, once each', () => {
+  const cases = [
+    [29, undefined, null],
+    [30, undefined, 1],
+    [45, { rung: 1, at: 'u1' }, null],
+    [60, { rung: 1, at: 'u1' }, 2],
+    [119, { rung: 2, at: 'u1' }, null],
+    [120, { rung: 2, at: 'u1' }, 3],
+    [500, undefined, 3], // first seen long after: straight to the highest timed rung
+  ];
+  for (const [minutes, was, want] of cases) {
+    const { due, next } = climb([quiet(1, minutes)], was && { 1: was });
+    assert.equal(due[0]?.rung ?? null, want, `${minutes}m after ${was?.rung}`);
+    assert.equal(next[1]?.rung ?? 0, want ?? was?.rung ?? 0);
+  }
+});
+
+test('climb: rung 4 is the next wake after rung 3, and then stays put', () => {
+  const at3 = { 1: { rung: 3, at: 'u1' } };
+  const { due, next } = climb([quiet(1, 130)], at3);
+  assert.deepEqual(
+    due.map((p) => p.rung),
+    [FLAG_RUNG],
+  );
+  assert.deepEqual(climb([quiet(1, 400)], next).due, []);
+});
+
+test('climb: new activity, an event, or leaving the stalled list resets the rung', () => {
+  const was = { 1: { rung: 3, at: 'u1' }, 2: { rung: 2, at: 'u1' } };
+  // updatedAt moved: starts over at rung 1.
+  assert.equal(climb([quiet(1, 35, 'u2')], was).due[0].rung, 1);
+  // an event on the PR, same updatedAt.
+  assert.equal(climb([quiet(2, 70)], was, [2]).due[0].rung, 2);
+  assert.equal(climb([quiet(2, 40)], was, [2]).due[0].rung, 1);
+  // no longer stalled (or held, drafted, merged): dropped from the stored ladder.
+  assert.deepEqual(climb([], was).next, {});
+});
+
+test('readLadder keeps good entries and starts over on damage', () => {
+  assert.deepEqual(readLadder({ 1: { rung: 2, at: 'u' } }), {
+    1: { rung: 2, at: 'u' },
+  });
+  for (const bad of [
+    undefined,
+    null,
+    'x',
+    [],
+    { 1: { rung: 9, at: 'u' } },
+    { 1: 3 },
+  ])
+    assert.deepEqual(readLadder(bad), {});
+});
+
+test('the rung and its instruction are named for the orchestrator', () => {
+  assert.match(describeRung({ rung: 1 }), /^ {4}rung 1: nudge: tell the lane/);
+  assert.match(describeRung({ rung: 4 }), /flag for the user/);
 });

@@ -184,14 +184,23 @@ nothing was watching.
 
 - **One watcher per PR.** Lane messages are the main wake; the watchdog heartbeat runs every
   2-3 hours (default 150 minutes), not hourly.
+- **The quiet ladder.** A PR quiet for 30, 60 and 120 minutes climbs one rung at a time, the same
+  whether the user is away or present. Each wake prints the rung and its instruction under the PR.
+  Rung 1 (30m), `nudge`: you message the lane for a one-line status. Rung 2 (60m), `second nudge`:
+  you message it again and ask what blocks it. Rung 3 (120m), `stalled`: you check the lane session
+  yourself, then unblock, restart or reassign it. Rung 4, on the next wake after rung 3 with the PR
+  still quiet: `flag for the user`, so list it as a user item and a run-report line. The watchdog
+  only prints; every message and decision is yours. Re-arm after acting: the rung is stored per PR,
+  so the ladder continues rather than restarts, and any new activity on the PR (an update or an
+  event) starts it over. Held and draft PRs have no rung.
 - **Lane messages are the primary wake.** The watchdog is the fallback: run
   `node "${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/watchdog.mjs"` with the Bash tool's
-  `run_in_background`. It polls GitHub at no model cost, and exits on a PR quiet for 30+ minutes,
-  on a truncated PR list, after five failed polls, on a transition (checks finished, a merge, a close
+  `run_in_background`. It polls GitHub at no model cost, and exits when a quiet PR reaches a rung of
+  the ladder below, on a truncated PR list, after five failed polls, on a transition (checks finished, a merge, a close
   without merging, a new review or comment), or on the heartbeat (150 minutes by default). The first
   line of each wake names its class, `watchdog [event|quiet|heartbeat|error]`: react to an `event`
-  by acting on that PR (merge gate, fix, close-out), to `quiet` by nudging the lane yourself (the
-  watchdog never messages one), to `error` by checking `gh`, and to `heartbeat` by the lane sweep. A PR held on
+  by acting on that PR (merge gate, fix, close-out), to `quiet` by doing what the printed rung says
+  (the watchdog never messages a lane), to `error` by checking `gh`, and to `heartbeat` by the lane sweep. A PR held on
   purpose (waiting on the user, a hold on merges) gets the `hold` label so the watchdog skips it;
   remove the label when the hold lifts. Create the label once per repository
   (`gh label create hold`). Every watchdog report lists the held PRs and how long each has been
