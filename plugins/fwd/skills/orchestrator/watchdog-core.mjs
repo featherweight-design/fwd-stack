@@ -2,15 +2,6 @@
 // touched it (a push, a review, a comment) for `stallMinutes`: the sign a lane has stopped,
 // or is waiting on something that will never notify it.
 
-/**
- * The stalled PRs not already reported. `seen` maps a PR number to the `updatedAt` it was last
- * reported at: a PR still quiet since then has been handed to the orchestrator once, and reporting
- * it on every re-arm would end each watch on its first poll. Any new activity reports it again.
- */
-export function unreported(stalled, seen = {}) {
-  return stalled.filter((p) => seen[p.number] !== p.updatedAt);
-}
-
 // A PR held on purpose carries this label: it is not a lane that stopped.
 export const HOLD_LABEL = 'hold';
 export const held = (p) =>
@@ -174,3 +165,97 @@ export function wakeClass({ events = [], stalled = [] } = {}) {
   if (events.length) return 'event';
   return stalled.length ? 'quiet' : 'heartbeat';
 }
+
+// The escalation ladder for a PR that stays quiet. Each rung is a stage of the same stall, and the
+// watchdog only names it: the orchestrator does the nudging, the checking and the flagging.
+export const NUDGE_MINUTES = 30;
+export const SECOND_NUDGE_MINUTES = 60;
+export const STALLED_MINUTES = 120;
+export const FLAG_RUNG = 4;
+// Rung 4 waits this long after rung 3, so the orchestrator has time to act first.
+export const FLAG_GRACE_MINUTES = 45;
+
+export const RUNGS = [
+  {
+    rung: 1,
+    minutes: NUDGE_MINUTES,
+    text: 'nudge: tell the lane this PR has been quiet and ask for a one-line status',
+  },
+  {
+    rung: 2,
+    minutes: SECOND_NUDGE_MINUTES,
+    text: 'second nudge: tell the lane again, ask what it is blocked on, and say you will check its session next',
+  },
+  {
+    rung: 3,
+    minutes: STALLED_MINUTES,
+    text: 'stalled: check the lane session yourself, then unblock, restart or reassign it',
+  },
+  {
+    rung: FLAG_RUNG,
+    minutes: null,
+    text: 'flag for the user: list it as a user item and a run-report line; the lane did not recover',
+  },
+];
+
+/** The ladder memory from the state file, or {} when it is missing or damaged. */
+export function readLadder(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw).filter(
+      ([, e]) =>
+        Number.isInteger(e?.rung) &&
+        e.rung >= 0 &&
+        e.rung <= FLAG_RUNG &&
+        typeof e.at === 'string' &&
+        Number.isFinite(e.ts) &&
+        (e.since === undefined || Number.isFinite(e.since)),
+    ),
+  );
+}
+
+/**
+ * Where each stalled PR stands. `ladder` maps a PR number to { rung, at, ts, since }: the last
+ * rung reported, the `updatedAt` it was reported at, when that rung was reached, and (after an
+ * event) when quiet is counted from. Returns `due`, the PRs reaching a new rung this poll (with
+ * `rung` set), and `next`, the ladder to store. A moved `updatedAt` or a PR no longer stalled
+ * starts over. A PR that raised an event (`reset` numbers) while its `updatedAt` stayed put
+ * counts its quiet from `now`, so old quiet time does not replay rungs 3 and 4. Rung 4 comes
+ * only once rung 3 is FLAG_GRACE_MINUTES old and the PR is still quiet. A PR with no entry
+ * reports at most rung 3, however old.
+ */
+export function climb(stalled, ladder = {}, reset = [], now = Date.now()) {
+  const due = [];
+  const next = {};
+  for (const p of stalled) {
+    const was = ladder[p.number];
+    const fresh = was?.at === p.updatedAt;
+    if (reset.includes(p.number)) {
+      next[p.number] = { rung: 0, at: p.updatedAt, ts: now, since: now };
+      continue;
+    }
+    const prior = fresh ? was.rung : 0;
+    const since = fresh ? was.since : undefined;
+    const quietNow =
+      since === undefined ? p.quietMinutes : Math.floor((now - since) / 60_000);
+    const reached = RUNGS.filter(
+      (r) => r.minutes !== null && quietNow >= r.minutes,
+    ).length;
+    const graceOver = fresh && now - was.ts >= FLAG_GRACE_MINUTES * 60_000;
+    const rung = prior >= 3 && graceOver ? FLAG_RUNG : Math.max(reached, prior);
+    const ts = rung > prior || !fresh ? now : was.ts;
+    if (rung > prior) due.push({ ...p, rung });
+    if (rung > 0 || since !== undefined)
+      next[p.number] = {
+        rung,
+        at: p.updatedAt,
+        ts,
+        ...(since === undefined ? {} : { since }),
+      };
+  }
+  return { due, next };
+}
+
+/** The lines a wake prints for a PR on a rung: the instruction for the orchestrator. */
+export const describeRung = (p) =>
+  `    rung ${p.rung}: ${RUNGS[p.rung - 1].text}`;

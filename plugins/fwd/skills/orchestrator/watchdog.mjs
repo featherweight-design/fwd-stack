@@ -2,9 +2,10 @@
 // The orchestrator's stall watchdog. Run it with the Bash tool's `run_in_background`: it polls
 // GitHub (no model cost) and EXITS only when something needs the orchestrator, and that exit is
 // what wakes the session:
-//   - an open PR has been quiet for `--stall` minutes (default 30) and has not been reported since
-//     it went quiet (a state file in the plugin's data folder remembers, so a re-arm does not exit
-//     on the same PR again), or
+//   - an open PR reaches a rung of the quiet ladder (30, 60 and 120 minutes quiet: nudge, second
+//     nudge, stalled; rung 4, flag for the user, 45 minutes after rung 3 if still quiet). The state file in
+//     the plugin's data folder remembers each PR's rung, so a re-arm continues the ladder rather
+//     than restarting it, and any new activity on the PR starts it over; or
 //   - a transition since the last poll: a PR's checks finished (passed or failed), a PR merged, a PR
 //     was closed unmerged, or a new review or comment arrived, or
 //   - the heartbeat (every 2.5 hours by default), so idle lanes with queued work get checked even when nothing stalls.
@@ -15,6 +16,9 @@
 // table. Re-arm it after acting.
 // A foreground wait loop blocks the user's messages behind it; never run this in the foreground.
 //
+// `--stall` is only the floor for entering the ladder: a value under 30 has no effect, and one
+// above 30 delays rung 1.
+//
 //   node watchdog.mjs [--repo owner/name] [--stall 30] [--heartbeat 150] [--interval 120]
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -23,15 +27,17 @@ import { fileURLToPath } from 'node:url';
 
 import { pluginDataDir } from '../../lib/plugin-data.mjs';
 import {
+  climb,
   describeEvent,
+  describeRung,
   heldPrs,
   lookupBatch,
   nextSnapshots,
   quietedNumbers,
+  readLadder,
   snapshots,
   stalledPrs,
   transitions,
-  unreported,
   wakeClass,
 } from './watchdog-core.mjs';
 
@@ -135,10 +141,12 @@ let exiting = false;
 const report = (kind, why, stalled = [], events = []) => {
   if (exiting) return; // one report per run
   const lines = [`watchdog [${kind}]: ${why}`, ...events.map(describeEvent)];
-  for (const p of stalled)
+  for (const p of stalled) {
     lines.push(
       `  #${p.number} quiet ${p.quietMinutes}m: ${p.title} (${p.headRefName})`,
     );
+    if (p.rung) lines.push(describeRung(p));
+  }
   for (const p of heldPrs(lastPrs, Date.now()))
     lines.push(
       `  held #${p.number} quiet ${Math.floor(p.quietMinutes / 60)}h: ${p.title}`,
@@ -159,8 +167,9 @@ const seenFile = join(
   stateDir,
   `fwd-watchdog-${(repo ?? process.cwd()).replace(/[^A-Za-z0-9]/g, '-')}.json`,
 );
-// The file is the quiet-PR memory (PR number -> updatedAt) plus one `snap` key: the last poll's
-// snapshot per PR, which is what transitions are detected against.
+// The file keeps two sibling keys: `snap`, the last poll's snapshot per PR (what transitions are
+// detected against), and `ladder`, each quiet PR's rung. Older files also hold PR-number keys
+// from before the ladder; they are left alone and no longer read.
 const readSeen = () => {
   try {
     return JSON.parse(readFileSync(seenFile, 'utf8'));
@@ -204,8 +213,6 @@ for (;;) {
     const prs = openPrs();
     if (exiting) break;
     const seen = readSeen();
-    const stalled = unreported(stalledPrs(prs, Date.now(), stall), seen);
-    for (const p of stalled) seen[p.number] = p.updatedAt;
     const cur = snapshots(richPrs(), login());
     const tried = lookupBatch(
       seen.snap,
@@ -220,17 +227,25 @@ for (;;) {
       tried,
       quietedNumbers(prs),
     );
-    if (stalled.length || JSON.stringify(snap) !== JSON.stringify(seen.snap)) {
+    const { due: stalled, next: ladder } = climb(
+      stalledPrs(prs, Date.now(), stall),
+      readLadder(seen.ladder),
+      events.map((e) => e.number),
+      Date.now(),
+    );
+    if (
+      JSON.stringify(snap) !== JSON.stringify(seen.snap) ||
+      JSON.stringify(ladder) !== JSON.stringify(seen.ladder ?? {})
+    ) {
       mkdirSync(stateDir, { recursive: true });
-      writeFileSync(seenFile, `${JSON.stringify({ ...seen, snap })}\n`);
+      writeFileSync(seenFile, `${JSON.stringify({ ...seen, snap, ladder })}\n`);
     }
     if (stalled.length || events.length)
       report(
         wakeClass({ events, stalled }),
         [
           events.length && `${events.length} transition(s)`,
-          stalled.length &&
-            `${stalled.length} open PR(s) quiet for ${stall}+ minutes`,
+          stalled.length && `${stalled.length} quiet PR(s) climbed a rung`,
         ]
           .filter(Boolean)
           .join(', '),
