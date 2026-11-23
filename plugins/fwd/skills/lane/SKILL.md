@@ -114,6 +114,10 @@ to a log, which can never wake a session.
 - Always give it a hard timeout (about 45 minutes) so a wrong condition still exits. Set any
   baseline count before you request the review, not after.
 - Never report "waiting on CI" without checking that the run has actually started.
+- **Open every message to the orchestrator with one status line:** `done: <what>`,
+  `blocked: <on what>` or `needs-decision: <the decision and your recommended default>`. Put the PR
+  number and state after the verb (`done: PR #42 merged`). A plain progress note may have no verb.
+  It is a convention, not enforced; it lets the orchestrator triage by the first line.
 - **Message the orchestrator once per milestone:** PR opened, red CI you cannot fix, PR merged,
   blocked, rotated. No running updates.
 - Never wait in the foreground, even with the away window open: the user may check in on any
