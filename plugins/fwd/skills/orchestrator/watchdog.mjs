@@ -3,7 +3,7 @@
 // GitHub (no model cost) and EXITS only when something needs the orchestrator, and that exit is
 // what wakes the session:
 //   - an open PR reaches a rung of the quiet ladder (30, 60 and 120 minutes quiet: nudge, second
-//     nudge, stalled; rung 4, flag for the user, on the next wake after that). The state file in
+//     nudge, stalled; rung 4, flag for the user, 45 minutes after rung 3 if still quiet). The state file in
 //     the plugin's data folder remembers each PR's rung, so a re-arm continues the ladder rather
 //     than restarting it, and any new activity on the PR starts it over; or
 //   - a transition since the last poll: a PR's checks finished (passed or failed), a PR merged, a PR
@@ -15,6 +15,9 @@
 // On every exit it prints the stalled PRs, a roadmap stale-check reminder and the lane-context
 // table. Re-arm it after acting.
 // A foreground wait loop blocks the user's messages behind it; never run this in the foreground.
+//
+// `--stall` is only the floor for entering the ladder: a value under 30 has no effect, and one
+// above 30 delays rung 1.
 //
 //   node watchdog.mjs [--repo owner/name] [--stall 30] [--heartbeat 150] [--interval 120]
 import { execFileSync } from 'node:child_process';
@@ -228,6 +231,7 @@ for (;;) {
       stalledPrs(prs, Date.now(), stall),
       readLadder(seen.ladder),
       events.map((e) => e.number),
+      Date.now(),
     );
     if (
       JSON.stringify(snap) !== JSON.stringify(seen.snap) ||

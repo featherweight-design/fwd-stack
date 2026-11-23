@@ -6,6 +6,7 @@ import {
   checksState,
   climb,
   describeRung,
+  FLAG_GRACE_MINUTES,
   FLAG_RUNG,
   describeEvent,
   heldPrs,
@@ -269,60 +270,102 @@ test('describeEvent reads as one line naming the PR and the change', () => {
   );
 });
 
+const T0 = Date.parse('2026-10-27T21:00:00Z');
+const MIN = 60_000;
 const quiet = (number, minutes, at = 'u1') => ({
   number,
   updatedAt: at,
   quietMinutes: minutes,
+});
+const entry = (rung, ts = T0, extra = {}) => ({
+  rung,
+  at: 'u1',
+  ts,
+  ...extra,
 });
 
 test('climb: a PR reaches rungs 1 to 3 as it stays quiet, once each', () => {
   const cases = [
     [29, undefined, null],
     [30, undefined, 1],
-    [45, { rung: 1, at: 'u1' }, null],
-    [60, { rung: 1, at: 'u1' }, 2],
-    [119, { rung: 2, at: 'u1' }, null],
-    [120, { rung: 2, at: 'u1' }, 3],
-    [500, undefined, 3], // first seen long after: straight to the highest timed rung
+    [45, entry(1), null],
+    [60, entry(1), 2],
+    [119, entry(2), null],
+    [120, entry(2), 3],
+    [500, undefined, 3], // first seen long after: highest timed rung only
   ];
   for (const [minutes, was, want] of cases) {
-    const { due, next } = climb([quiet(1, minutes)], was && { 1: was });
+    const { due, next } = climb([quiet(1, minutes)], was && { 1: was }, [], T0);
     assert.equal(due[0]?.rung ?? null, want, `${minutes}m after ${was?.rung}`);
     assert.equal(next[1]?.rung ?? 0, want ?? was?.rung ?? 0);
   }
 });
 
-test('climb: rung 4 is the next wake after rung 3, and then stays put', () => {
-  const at3 = { 1: { rung: 3, at: 'u1' } };
-  const { due, next } = climb([quiet(1, 130)], at3);
+test('climb: rung 4 waits out the grace after rung 3, then stays put', () => {
+  const at3 = { 1: entry(3) };
+  const grace = FLAG_GRACE_MINUTES * MIN;
+  assert.deepEqual(climb([quiet(1, 130)], at3, [], T0 + 2 * MIN).due, []);
+  assert.deepEqual(climb([quiet(1, 130)], at3, [], T0 + grace - 1).due, []);
+  const { due, next } = climb([quiet(1, 130)], at3, [], T0 + grace);
   assert.deepEqual(
     due.map((p) => p.rung),
     [FLAG_RUNG],
   );
-  assert.deepEqual(climb([quiet(1, 400)], next).due, []);
+  assert.deepEqual(climb([quiet(1, 400)], next, [], T0 + 2 * grace).due, []);
 });
 
-test('climb: new activity, an event, or leaving the stalled list resets the rung', () => {
-  const was = { 1: { rung: 3, at: 'u1' }, 2: { rung: 2, at: 'u1' } };
-  // updatedAt moved: starts over at rung 1.
-  assert.equal(climb([quiet(1, 35, 'u2')], was).due[0].rung, 1);
-  // an event on the PR, same updatedAt.
-  assert.equal(climb([quiet(2, 70)], was, [2]).due[0].rung, 2);
-  assert.equal(climb([quiet(2, 40)], was, [2]).due[0].rung, 1);
-  // no longer stalled (or held, drafted, merged): dropped from the stored ladder.
-  assert.deepEqual(climb([], was).next, {});
+test('climb: a PR first seen long quiet reports rung 3, and rung 4 only after grace', () => {
+  const first = climb([quiet(1, 900)], {}, [], T0);
+  assert.deepEqual(
+    first.due.map((p) => p.rung),
+    [3],
+  );
+  assert.deepEqual(
+    climb([quiet(1, 900)], first.next, [], T0 + 2 * MIN).due,
+    [],
+  );
+});
+
+test('climb: new activity or leaving the stalled list resets the rung', () => {
+  const was = { 1: entry(3), 2: entry(2) };
+  assert.equal(climb([quiet(1, 35, 'u2')], was, [], T0).due[0].rung, 1);
+  assert.equal(
+    climb([quiet(1, 35, 'u2')], was, [], T0 + 99 * 60 * MIN).due[0].rung,
+    1,
+  ); // never straight to 4
+  assert.deepEqual(climb([], was, [], T0).next, {});
+});
+
+test('climb: an event with the same updatedAt counts quiet from the event', () => {
+  const was = { 1: entry(3, T0 - 90 * MIN) };
+  const hit = climb([quiet(1, 300)], was, [1], T0);
+  assert.deepEqual(hit.due, []); // no replay of rungs 3 and 4
+  assert.equal(hit.next[1].rung, 0);
+  // 29 minutes on: nothing; 30: rung 1; later rungs follow the event time.
+  assert.deepEqual(climb([quiet(1, 329)], hit.next, [], T0 + 29 * MIN).due, []);
+  const r1 = climb([quiet(1, 330)], hit.next, [], T0 + 30 * MIN);
+  assert.deepEqual(
+    r1.due.map((p) => p.rung),
+    [1],
+  );
+  const r2 = climb([quiet(1, 361)], r1.next, [], T0 + 61 * MIN);
+  assert.deepEqual(
+    r2.due.map((p) => p.rung),
+    [2],
+  );
 });
 
 test('readLadder keeps good entries and starts over on damage', () => {
-  assert.deepEqual(readLadder({ 1: { rung: 2, at: 'u' } }), {
-    1: { rung: 2, at: 'u' },
+  assert.deepEqual(readLadder({ 1: { rung: 2, at: 'u', ts: 5 } }), {
+    1: { rung: 2, at: 'u', ts: 5 },
   });
   for (const bad of [
     undefined,
     null,
     'x',
     [],
-    { 1: { rung: 9, at: 'u' } },
+    { 1: { rung: 9, at: 'u', ts: 5 } },
+    { 1: { rung: 2, at: 'u' } },
     { 1: 3 },
   ])
     assert.deepEqual(readLadder(bad), {});

@@ -172,6 +172,8 @@ export const NUDGE_MINUTES = 30;
 export const SECOND_NUDGE_MINUTES = 60;
 export const STALLED_MINUTES = 120;
 export const FLAG_RUNG = 4;
+// Rung 4 waits this long after rung 3, so the orchestrator has time to act first.
+export const FLAG_GRACE_MINUTES = 45;
 
 export const RUNGS = [
   {
@@ -203,34 +205,53 @@ export function readLadder(raw) {
     Object.entries(raw).filter(
       ([, e]) =>
         Number.isInteger(e?.rung) &&
-        e.rung >= 1 &&
+        e.rung >= 0 &&
         e.rung <= FLAG_RUNG &&
-        typeof e.at === 'string',
+        typeof e.at === 'string' &&
+        Number.isFinite(e.ts) &&
+        (e.since === undefined || Number.isFinite(e.since)),
     ),
   );
 }
 
 /**
- * Where each stalled PR stands. `ladder` maps a PR number to { rung, at }: the last rung reported
- * and the `updatedAt` it was reported at. Returns `due`, the PRs reaching a new rung this poll
- * (with `rung` set), and `next`, the ladder to store. A PR whose `updatedAt` moved, that raised an
- * event (`reset` numbers), or that is no longer stalled starts over. Rung 4 is the next wake after
- * rung 3, however soon: it means a re-armed watch found the PR still quiet.
+ * Where each stalled PR stands. `ladder` maps a PR number to { rung, at, ts, since }: the last
+ * rung reported, the `updatedAt` it was reported at, when that rung was reached, and (after an
+ * event) when quiet is counted from. Returns `due`, the PRs reaching a new rung this poll (with
+ * `rung` set), and `next`, the ladder to store. A moved `updatedAt` or a PR no longer stalled
+ * starts over. A PR that raised an event (`reset` numbers) while its `updatedAt` stayed put
+ * counts its quiet from `now`, so old quiet time does not replay rungs 3 and 4. Rung 4 comes
+ * only once rung 3 is FLAG_GRACE_MINUTES old and the PR is still quiet. A PR with no entry
+ * reports at most rung 3, however old.
  */
-export function climb(stalled, ladder = {}, reset = []) {
+export function climb(stalled, ladder = {}, reset = [], now = Date.now()) {
   const due = [];
   const next = {};
   for (const p of stalled) {
     const was = ladder[p.number];
-    const prior =
-      was?.at === p.updatedAt && !reset.includes(p.number) ? was.rung : 0;
+    const fresh = was?.at === p.updatedAt;
+    if (reset.includes(p.number)) {
+      next[p.number] = { rung: 0, at: p.updatedAt, ts: now, since: now };
+      continue;
+    }
+    const prior = fresh ? was.rung : 0;
+    const since = fresh ? was.since : undefined;
+    const quietNow =
+      since === undefined ? p.quietMinutes : Math.floor((now - since) / 60_000);
     const reached = RUNGS.filter(
-      (r) => r.minutes !== null && p.quietMinutes >= r.minutes,
+      (r) => r.minutes !== null && quietNow >= r.minutes,
     ).length;
-    const rung = prior === 3 ? FLAG_RUNG : reached;
-    if (Math.max(rung, prior) > 0)
-      next[p.number] = { rung: Math.max(rung, prior), at: p.updatedAt };
+    const graceOver = fresh && now - was.ts >= FLAG_GRACE_MINUTES * 60_000;
+    const rung = prior >= 3 && graceOver ? FLAG_RUNG : Math.max(reached, prior);
+    const ts = rung > prior || !fresh ? now : was.ts;
     if (rung > prior) due.push({ ...p, rung });
+    if (rung > 0 || since !== undefined)
+      next[p.number] = {
+        rung,
+        at: p.updatedAt,
+        ts,
+        ...(since === undefined ? {} : { since }),
+      };
   }
   return { due, next };
 }
