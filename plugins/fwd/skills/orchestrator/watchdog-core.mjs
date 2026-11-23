@@ -37,3 +37,140 @@ export function heldPrs(prs, now) {
     }))
     .sort((a, b) => b.quietMinutes - a.quietMinutes);
 }
+
+// State transitions seen between two polls. The state file keeps one small snapshot per PR, and
+// a wake reports what changed since the last one: checks finished, a merge, a close, new talk.
+
+const FAILED = new Set([
+  'FAILURE',
+  'TIMED_OUT',
+  'CANCELLED',
+  'STARTUP_FAILURE',
+  'ACTION_REQUIRED',
+  'ERROR',
+]);
+
+/** One word for a PR's checks: none, pending, success or failure (pending wins until all finish). */
+export function checksState(rollup = []) {
+  if (!rollup?.length) return 'none';
+  const result = (c) => (c.conclusion ?? c.state ?? '').toUpperCase();
+  const done = (c) =>
+    c.__typename === 'StatusContext'
+      ? !['PENDING', 'EXPECTED', ''].includes(result(c))
+      : (c.status ?? '').toUpperCase() === 'COMPLETED';
+  // Deliberate: a red check is not news until every check has finished, so pending wins first.
+  if (!rollup.every(done)) return 'pending';
+  return rollup.some((c) => FAILED.has(result(c))) ? 'failure' : 'success';
+}
+
+// Talk from the user's own login or a [bot] author is not news to the orchestrator.
+const fromOthers = (me) => (x) => {
+  const login = (x?.author?.login ?? '').toLowerCase();
+  return !login.endsWith('[bot]') && (!me || login !== me.toLowerCase());
+};
+
+/**
+ * What a poll remembers about each open PR, by number. `talk` counts reviews plus comments by
+ * anyone but `me` and bots. Drafts and held PRs get no snapshot, so they raise no events.
+ */
+export function snapshots(prs, me = null) {
+  return Object.fromEntries(
+    prs
+      .filter((p) => !p.isDraft && !held(p))
+      .map((p) => [
+        p.number,
+        {
+          title: p.title,
+          checks: checksState(p.statusCheckRollup),
+          talk:
+            (p.reviews ?? []).filter(fromOthers(me)).length +
+            (p.comments ?? []).filter(fromOthers(me)).length,
+        },
+      ]),
+  );
+}
+
+/** The numbers of open PRs that are drafts or held: they raise no events. */
+export const quietedNumbers = (prs) =>
+  prs.filter((p) => p.isDraft || held(p)).map((p) => p.number);
+
+export const MAX_MISS = 5;
+export const MAX_LOOKUPS = 5;
+
+/** The remembered PRs missing from the open list to look up this poll, the fewest misses first. */
+export function lookupBatch(prev = {}, open = [], cap = MAX_LOOKUPS) {
+  const isOpen = new Set(open.map(String));
+  return Object.keys(prev)
+    .filter((n) => !isOpen.has(n))
+    .sort((a, b) => (prev[a].miss ?? 0) - (prev[b].miss ?? 0))
+    .slice(0, cap);
+}
+
+/**
+ * The events between the previous snapshots and now. `cur` is the open PRs; `resolved` maps a
+ * number that left the open list to 'merged' or 'closed' (absent when it could not be looked up,
+ * so it is tried again next poll). A PR with no previous snapshot is a baseline, not an event.
+ */
+export function transitions(prev = {}, cur = {}, resolved = {}) {
+  const events = [];
+  for (const [n, was] of Object.entries(prev)) {
+    const number = Number(n);
+    const now = cur[n];
+    if (!now) {
+      if (resolved[n])
+        events.push({ number, title: was.title, kind: resolved[n] });
+      continue;
+    }
+    if (
+      now.checks !== was.checks &&
+      ['success', 'failure'].includes(now.checks)
+    )
+      events.push({
+        number,
+        title: now.title,
+        kind: now.checks === 'success' ? 'checks-passed' : 'checks-failed',
+      });
+    if (now.talk > was.talk)
+      events.push({ number, title: now.title, kind: 'new-talk' });
+  }
+  return events;
+}
+
+/**
+ * The snapshots to store: the open PRs, plus those not seen this poll. A PR in `tried` (looked up
+ * as gone) that came back unresolved gains a `miss`, and is dropped after MAX_MISS of them so a
+ * lookup that never resolves is not retried forever. A PR in `quieted` (open, but now a draft
+ * or held) loses its snapshot, so its later merge or close raises no event.
+ */
+export function nextSnapshots(
+  prev = {},
+  cur = {},
+  resolved = {},
+  tried = [],
+  quieted = [],
+) {
+  const out = {};
+  for (const [n, was] of Object.entries(prev)) {
+    if (cur[n] || resolved[n] || quieted.map(String).includes(n)) continue;
+    if (!tried.map(String).includes(n)) out[n] = was;
+    else if ((was.miss ?? 0) + 1 < MAX_MISS)
+      out[n] = { ...was, miss: (was.miss ?? 0) + 1 };
+  }
+  return { ...out, ...cur };
+}
+
+const WORDS = {
+  'checks-passed': 'checks passed',
+  'checks-failed': 'checks failed',
+  merged: 'merged',
+  closed: 'closed without merging',
+  'new-talk': 'new review or comment',
+};
+export const describeEvent = (e) =>
+  `  #${e.number} ${WORDS[e.kind]}: ${e.title}`;
+
+/** The class of a poll wake: event, then quiet, then the timer alone. Errors are reported directly. */
+export function wakeClass({ events = [], stalled = [] } = {}) {
+  if (events.length) return 'event';
+  return stalled.length ? 'quiet' : 'heartbeat';
+}
