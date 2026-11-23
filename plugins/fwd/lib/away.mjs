@@ -30,6 +30,27 @@ export function awayUntil(env = process.env, now = Date.now()) {
   }
 }
 
+// Three readings, for a rule that may only ever ADD a refusal while the user is away. `away`: an
+// open window. `present`: no file, or a window that has expired. `unknown`: a file is there but
+// cannot be read or parsed (a torn write, a hand edit, a permissions fault). A caller that adds
+// refusals treats `unknown` like `away`: a damaged file must not silently re-enable what an open
+// window forbids. A caller must never use `unknown` to relax anything.
+export function awayState(env = process.env, now = Date.now()) {
+  let raw;
+  try {
+    raw = readFileSync(file(env), 'utf8');
+  } catch (e) {
+    return e?.code === 'ENOENT' ? 'present' : 'unknown';
+  }
+  try {
+    const { until } = JSON.parse(raw);
+    if (typeof until !== 'number' || !Number.isFinite(until)) return 'unknown';
+    return until > now ? 'away' : 'present';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function setAway(hours, env = process.env, now = Date.now()) {
   if (!(hours > 0)) throw new Error('hours must be a positive number');
   mkdirSync(pluginDataDir(env), { recursive: true });

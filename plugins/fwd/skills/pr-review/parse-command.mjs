@@ -229,12 +229,16 @@ function mergeOf(words) {
     return words.slice(i).includes('merge') ? unreadable : null;
   let pr = null;
   let prRepo = null;
+  const flags = [];
   for (let j = i + 1; j < words.length; j++) {
     const a = words[j];
     if (VALUE_FLAGS.has(a)) {
       j++;
       continue;
     }
+    // `--auto` and `--admin` change WHEN or HOW the merge happens, whatever value is attached.
+    const named = a.match(/^--(auto|admin)(?:=|$)/);
+    if (named && !flags.includes(named[1])) flags.push(named[1]);
     if (BOOLEAN_FLAGS.has(a) || isRepoFlag(a) || /^--[a-z-]+=/.test(a))
       continue;
     if (a.startsWith('-') || a.includes('$')) return unreadable;
@@ -247,7 +251,31 @@ function mergeOf(words) {
     else if (url) [pr, prRepo] = [url[2], url[1]];
     else return unreadable; // a branch name, or anything else
   }
-  return pr ? { action: 'merge', pr, repo: prRepo ?? repo } : unreadable;
+  // `flags` appears only when there is one, so a plain merge reads exactly as it always did.
+  return pr
+    ? {
+        action: 'merge',
+        pr,
+        repo: prRepo ?? repo,
+        ...(flags.length ? { flags } : {}),
+      }
+    : unreadable;
+}
+
+// The GraphQL mutations that put a PR in a merge queue or switch on auto-merge. They name a PR by
+// node id, so they cannot be attributed to a number; the hook only needs to know they are there.
+// Counted on the text with quotes and backslashes removed, like the other mention checks.
+export function queueMention(cmd) {
+  const plain = cmd.replace(/\\\n/g, ' ').replace(/['"\\]/g, ' ');
+  return /\b(?:enqueuePullRequest|enablePullRequestAutoMerge)\b/.test(plain);
+}
+
+// The away-mode flags in a command line: `auto`, `admin` from any readable merge, `queue` from a
+// queue or auto-merge mutation. Unique, in first-seen order.
+export function mergeFlags(cmd) {
+  const flags = parseCommand(cmd).flatMap((g) => g.flags ?? []);
+  if (queueMention(cmd)) flags.push('queue');
+  return [...new Set(flags)];
 }
 
 function gatedIn(words) {
@@ -689,4 +717,7 @@ if (isMain(import.meta.url)) {
   }
   for (const g of parsed)
     if (g.pr) console.log([g.action, g.pr, g.repo].filter(Boolean).join(' '));
+  // `flags <csv>`: what the away-window rule needs, read apart from the lines above.
+  const flags = mergeFlags(cmd);
+  if (flags.length) console.log(`flags ${flags.join(',')}`);
 }

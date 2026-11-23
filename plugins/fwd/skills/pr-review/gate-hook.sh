@@ -50,6 +50,24 @@ if printf '%s\n' "$gated" | grep -qx 'unreadable'; then
   exit 0
 fi
 
+# The away-window rule: while the user is away, a merge by --auto, --admin or a merge queue (or the
+# GraphQL mutations for one) is denied. It runs here, from the copy beside this script, so a newer
+# or older gate cannot skip it, and it only ever adds a refusal. The parser prints `flags <csv>`.
+# A failure of the check itself (node crashing) is a denial too: this stays fail-closed.
+flags=$(printf '%s\n' "$gated" | sed -n 's/^flags //p' | paste -sd, -)
+if [ -n "$flags" ]; then
+  if ! away_out=$(node "$here/away-merge.mjs" "$flags" 2>&1); then
+    jq -nc --arg reason "$away_out" '{
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: ("pr-review gate (away window):\n" + $reason)
+      }
+    }'
+    exit 0
+  fi
+fi
+
 # Run the NEWEST installed gate, resolved now rather than when the session loaded its hooks, so a
 # gate fix reaches a running session without /reload-plugins. gate-path.mjs only trusts
 # ~/.claude/fwd when it resolves into the fwd plugin cache; otherwise, or if it fails, the gate

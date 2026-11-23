@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { awayUntil, clearAway, setAway } from './away.mjs';
+import { awayState, awayUntil, clearAway, setAway } from './away.mjs';
 
 const env = () => ({
   CLAUDE_PLUGIN_DATA: mkdtempSync(join(tmpdir(), 'away-')),
@@ -37,4 +37,37 @@ test('extending a window replaces it and leaves no temporary file behind', () =>
   const until = setAway(10, e, 0);
   assert.equal(awayUntil(e, 1), until);
   assert.deepEqual(readdirSync(e.CLAUDE_PLUGIN_DATA), ['away.json']);
+});
+
+test('awayState reads away, present and expired apart', () => {
+  const e = env();
+  assert.equal(awayState(e), 'present'); // no file
+  const until = setAway(1, e, 1_000);
+  assert.equal(awayState(e, until - 1), 'away');
+  assert.equal(awayState(e, until), 'present'); // expired
+  clearAway(e);
+  assert.equal(awayState(e), 'present');
+});
+
+test('a file that exists but cannot be parsed is unknown, never present', () => {
+  for (const body of [
+    '{"until":',
+    '',
+    'null',
+    '{"until":"soon"}',
+    '{}',
+    '[]',
+  ]) {
+    const e = env();
+    writeFileSync(join(e.CLAUDE_PLUGIN_DATA, 'away.json'), body);
+    assert.equal(awayState(e), 'unknown', JSON.stringify(body));
+    // awayUntil keeps its old reading for the callers that rely on it.
+    assert.equal(awayUntil(e), null);
+  }
+});
+
+test('a directory where the file should be is unknown', () => {
+  const e = env();
+  mkdirSync(join(e.CLAUDE_PLUGIN_DATA, 'away.json'));
+  assert.equal(awayState(e), 'unknown');
 });

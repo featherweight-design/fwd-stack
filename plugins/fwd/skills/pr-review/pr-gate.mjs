@@ -48,6 +48,8 @@ import {
   sameRepo,
 } from './git-remote.mjs';
 import { parsePages } from './pages.mjs';
+import { awayMergeRefusal } from './away-merge.mjs';
+import { awayUntil } from '../../lib/away.mjs';
 
 const args = process.argv.slice(2);
 const pr = args.find((a) => /^\d+$/.test(a));
@@ -78,6 +80,25 @@ if (action === 'rerequest') {
       'other code takes a Claude review; doc, test, script and copy PRs take none. Fix what you find and merge on green CI.',
   );
   process.exit(1);
+}
+
+// While the user is away, a merge by auto-merge, admin bypass or queue is refused before anything
+// is read from GitHub. The hook checks this itself (a stale gate copy must not skip it); this is the
+// same rule for a direct run. It only adds a refusal: nothing below is relaxed by it.
+const mergeFlags = args.includes('--merge-flags')
+  ? (args[args.indexOf('--merge-flags') + 1] ?? '').split(',')
+  : [];
+if (action === 'merge') {
+  const refusal = awayMergeRefusal(mergeFlags);
+  if (refusal) {
+    console.log(`BLOCKED by pr-review:\n  - ${refusal}`);
+    process.exit(1);
+  }
+  const until = awayUntil();
+  if (until)
+    console.log(
+      `away window open until ${new Date(until).toISOString()}: merging only on CI that is green on the head now`,
+    );
 }
 
 const run = (args) =>
