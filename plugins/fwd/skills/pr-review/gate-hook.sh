@@ -50,6 +50,15 @@ if printf '%s\n' "$gated" | grep -qx 'unreadable'; then
   exit 0
 fi
 
+# The away-window flags (`--auto`, `--admin`, a queue or API merge form) come from the parser on
+# their own `flags <csv>` line. They are taken OUT of the list before the loop below, so that line
+# can never be read as an action, and they go to the gate as `--merge-flags`: the gate is the one
+# place that decides whether the window forbids them.
+flags=$(printf '%s\n' "$gated" | sed -n 's/^flags //p' | paste -sd, -)
+gated=$(printf '%s\n' "$gated" | grep -v '^flags ' || true)
+extra=()
+[ -n "$flags" ] && extra=(--merge-flags "$flags")
+
 # Run the NEWEST installed gate, resolved now rather than when the session loaded its hooks, so a
 # gate fix reaches a running session without /reload-plugins. gate-path.mjs only trusts
 # ~/.claude/fwd when it resolves into the fwd plugin cache; otherwise, or if it fails, the gate
@@ -59,6 +68,11 @@ fi
 bundled="$here/pr-gate.mjs"
 gate=$(node "$here/gate-path.mjs" "$bundled" 2>/dev/null) || gate="$bundled"
 [ -n "$gate" ] && [ -f "$gate" ] || gate="$bundled"
+# An installed gate from before the away rule ignores --merge-flags. For a flagged line the
+# resolved gate must name that flag in its source, or the gate bundled beside this script judges.
+if [ -n "$flags" ] && ! grep -qF -- '--merge-flags' "$gate" 2>/dev/null; then
+  gate="$bundled"
+fi
 
 # Where the gated commands run: `cd <dir>`, `cd?` (unknown), or neither (the session's directory).
 run_dir=""
@@ -78,10 +92,10 @@ while read -r action pr repo; do
     # still starts in the command's own directory when it exists, for its push-landed check.
     if [ -n "$run_dir" ] && [ -d "$run_dir" ]; then
       ran=$gate
-      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" --repo "$repo" 2>&1)
+      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" --repo "$repo" ${extra[@]+"${extra[@]}"} 2>&1)
     else
       ran=$gate
-      out=$(node "$gate" "$pr" --action "$action" --repo "$repo" 2>&1)
+      out=$(node "$gate" "$pr" --action "$action" --repo "$repo" ${extra[@]+"${extra[@]}"} 2>&1)
     fi
   elif [ $dir_unknown -eq 1 ]; then
     out="this command changes directory in a way the gate cannot follow (a cd with no path, cd -, an option or redirection on the cd, pushd or popd, or a cd sharing a subshell or pipeline with the $action), so it cannot tell which repository PR #$pr is in. Name it in the command: --repo owner/name, or repos/<owner>/<name>/pulls/$pr in an API path."
@@ -89,18 +103,30 @@ while read -r action pr repo; do
   elif [ -n "$run_dir" ]; then
     if [ -d "$run_dir" ]; then
       ran=$gate
-      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" 2>&1)
+      out=$(cd "$run_dir" && node "$gate" "$pr" --action "$action" ${extra[@]+"${extra[@]}"} 2>&1)
     else
       out="the command runs in $run_dir, which does not exist, so the gate cannot tell which repository PR #$pr is in. Name it in the command: --repo owner/name."
       false
     fi
   else
     ran=$gate
-    out=$(node "$gate" "$pr" --action "$action" 2>&1)
+    out=$(node "$gate" "$pr" --action "$action" ${extra[@]+"${extra[@]}"} 2>&1)
   fi
   status=$?
   [ $status -ne 0 ] && break
 done <<<"$gated"
+# Flags but no PR to judge (a GraphQL call), or a denial for another reason (a cd the gate cannot
+# follow): the gate judges the away rule alone, and its refusal is the one named. If it cannot run,
+# this denies, like every other gate call.
+if [ -n "$flags" ] && { [ $status -ne 0 ] || [ -z "$ran" ]; }; then
+  fout=$(node "$gate" --action merge --flags-only "${extra[@]}" 2>&1)
+  fstatus=$?
+  if [ $fstatus -ne 0 ] || [ $status -eq 0 ]; then
+    ran=$gate
+    out=$fout
+    status=$fstatus
+  fi
+fi
 [ $status -eq 0 ] && exit 0
 
 # Name the gate that ran, so a denial from a stale or unexpected copy is easy to spot.

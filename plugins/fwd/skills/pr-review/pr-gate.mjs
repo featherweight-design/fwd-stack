@@ -48,6 +48,8 @@ import {
   sameRepo,
 } from './git-remote.mjs';
 import { parsePages } from './pages.mjs';
+import { awayMergeRefusal } from './away-merge.mjs';
+import { awayWindow } from '../../lib/away.mjs';
 
 const args = process.argv.slice(2);
 const pr = args.find((a) => /^\d+$/.test(a));
@@ -78,6 +80,28 @@ if (action === 'rerequest') {
       'other code takes a Claude review; doc, test, script and copy PRs take none. Fix what you find and merge on green CI.',
   );
   process.exit(1);
+}
+
+// While the user is away, a merge by auto-merge, admin bypass or queue is refused before anything
+// is read from GitHub. The hook passes `--merge-flags`, so this is the rule's one owner. It only
+// adds a refusal: nothing below is relaxed by it.
+const mergeFlags = args.includes('--merge-flags')
+  ? (args[args.indexOf('--merge-flags') + 1] ?? '').split(',').filter(Boolean)
+  : [];
+if (action === 'merge') {
+  const window = awayWindow(); // read once: the refusal and the note below agree
+  const refusal = awayMergeRefusal(mergeFlags, window.state);
+  if (refusal) {
+    console.log(`BLOCKED by pr-review:\n  - ${refusal}`);
+    process.exit(1);
+  }
+  if (window.until)
+    console.log(
+      `away window open until ${new Date(window.until).toISOString()}: merging only on CI that is green on the head now`,
+    );
+  // A flag-only call (a GraphQL or API merge form that names no PR the gate can read) has nothing
+  // else to judge: the away rule was the whole question.
+  if (args.includes('--flags-only') && mergeFlags.length > 0) process.exit(0);
 }
 
 const run = (args) =>

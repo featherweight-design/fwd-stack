@@ -34,6 +34,13 @@
           },
           {
             "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/skills/pr-review/gate-hook.sh",
+            "if": "Bash(*graphql*)",
+            "timeout": 60,
+            "statusMessage": "pr-review: checking the away-window merge rule"
+          },
+          {
+            "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/hooks/secret-print-guard.mjs",
             "timeout": 10
           },
