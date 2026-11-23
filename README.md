@@ -226,6 +226,7 @@ marketplace first:
 | `prose-pass`         | Rewrites long-form in-app prose in the project's voice, with a fact check (own apps only)                            |
 | `run-project`        | The standard operating model: one orchestrator, a capped set of lanes for PR work, subagents for bounded reads       |
 | `orchestrator`       | Coordinates lane sessions: assigns work, watches stalls and context, rotates lanes, reports status                   |
+| `stow`               | Writes a short, overwrite-in-place checkpoint at a PR boundary or before rotating; never committed                   |
 | `lane`               | Works under an orchestrator: stays inside its brief, waits so the wait notifies, writes its handoff                  |
 
 Each skill first reads `.claude/fwd/<skill>.md` in the project, if present: the project's own

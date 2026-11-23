@@ -128,7 +128,7 @@ the moment one of these happens:
 6. **At each watchdog wake, a stale check**: list the project's open stories and to-dos by last
    update, and fix any untouched for 24 hours whose facts have moved.
 7. **Before rotating out**: bring the roadmap current, then record in the handoff that it is
-   current as of that time.
+   current as of that time. Run `stow` to write it.
 
 No secrets and no legal detail go on the roadmap; a legal item is a neutral title only. Never
 overwrite a field the user changed without telling them. A roadmap that lags the ruling log is a
@@ -232,7 +232,7 @@ harness compacts every session at the machine's configured window (300k recommen
   the compact window that stays there is on a machine without the setting: tell the user.
 - **Rotation is optional, day or night.** Rotate a lane at a PR boundary only when it has compacted
   several times and drifts: it forgets the brief, repeats work, or re-asks what it was told. The
-  lane writes a handoff and gives the user a labelled restart prompt on the brief template. A lane
+  lane runs `stow` and gives the user a labelled restart prompt on the brief template. A lane
   with no ranked work closes, and gets no prompt. While the user is away, the drifting lane keeps
   working on lean turns and the rotation waits for their return. `rotateAt`, when a project sets
   it, is a hard ceiling that applies only while the user is here.
