@@ -203,31 +203,31 @@ marketplace first:
 /plugin install fwd@fwd-stack
 ```
 
-| Skill                | What it does                                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `pr-review`          | The review rule (Claude review, risk checklist) and merge bar: the skill, its gate (`pr-gate.mjs`), watcher and hook |
-| `feature-acceptance` | Proves a UI feature landed on every route and viewport: contact sheet, `check-shared` and `check-tokens` tools       |
-| `design-review`      | Compares an implementation against its design handoff, property by property                                          |
-| `design-status`      | A fixed-shape readout of the design pipeline's state                                                                 |
-| `readiness-review`   | Audits a design handoff on seven dimensions and writes its READINESS verdict before any UI work                      |
-| `css-layout-triage`  | Measurement-first triage for layout bugs that resist fixing                                                          |
-| `caching`            | The standard caching approach: public or personal, versioned keys, invalidation, headers, measuring                  |
-| `complete-and-ship`  | Finishes a plan's remaining tasks unattended, then opens and reviews the PR                                          |
-| `epic-run`           | Runs a multi-PR feature epic end to end with per-PR and whole-vertical gates                                         |
-| `feature-run-report` | Emails the run report (progress, ready to test, waiting on you) at the end of a run, or when it blocks               |
-| `progress-chart`     | Status as a chart: one bar per named feature line from merged PRs, detail per group on request                       |
-| `waiting-on-me`      | The user's open roadmap items, ranked by how much each unblocks; read-only                                           |
-| `usage-report`       | Splits recorded Claude Code usage (weighted tokens) by project, model and session                                    |
-| `copy-review`        | Writing and reviewing customer-facing copy against the project's voice and locked vocabulary                         |
-| `infra-setup`        | Hosting, database and monitoring defaults, dashboards by API, staging footprint, names-only secrets list             |
-| `backlog-audit`      | Audits, triages and prioritises the GitHub Issues backlog, and governs intake                                        |
-| `ui-audit`           | Runs the project's UI sweep, triages captures for layout breakage, files on approval                                 |
-| `ui-probe`           | Probes: press the real screen at both widths, measure it, and prove the check fails with the fix reverted            |
-| `prose-pass`         | Rewrites long-form in-app prose in the project's voice, with a fact check (own apps only)                            |
-| `run-project`        | The standard operating model: one orchestrator, a capped set of lanes for PR work, subagents for bounded reads       |
-| `orchestrator`       | Coordinates lane sessions: assigns work, watches stalls and context, rotates lanes, reports status                   |
-| `stow`               | Writes a short, overwrite-in-place checkpoint at a PR boundary or before rotating; never committed                   |
-| `lane`               | Works under an orchestrator: stays inside its brief, waits so the wait notifies, writes its handoff                  |
+| Skill                | What it does                                                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-review`          | The review rule (Claude review, risk checklist) and merge bar: the skill, its gate (`pr-gate.mjs`), watcher and hook                    |
+| `feature-acceptance` | Proves a UI feature landed on every route and viewport: contact sheet, `check-shared` and `check-tokens` tools                          |
+| `design-review`      | Compares an implementation against its design handoff, property by property                                                             |
+| `design-status`      | A fixed-shape readout of the design pipeline's state                                                                                    |
+| `readiness-review`   | Audits a design handoff on seven dimensions and writes its READINESS verdict before any UI work                                         |
+| `css-layout-triage`  | Measurement-first triage for layout bugs that resist fixing                                                                             |
+| `caching`            | The standard caching approach: public or personal, versioned keys, invalidation, headers, measuring                                     |
+| `complete-and-ship`  | Finishes a plan's remaining tasks unattended, then opens and reviews the PR                                                             |
+| `epic-run`           | Runs a multi-PR feature epic end to end with per-PR and whole-vertical gates                                                            |
+| `feature-run-report` | Emails the run report (progress, ready to test, waiting on you) at the end of a run, or when it blocks                                  |
+| `progress-chart`     | Status as a chart: one bar per named feature line from merged PRs, detail per group on request                                          |
+| `waiting-on-me`      | The user's open roadmap items, ranked by how much each unblocks; read-only                                                              |
+| `usage-report`       | Splits recorded Claude Code usage (weighted tokens) by project, model and session                                                       |
+| `copy-review`        | Writing and reviewing customer-facing copy against the project's voice and locked vocabulary, and where copy lives and how it is edited |
+| `infra-setup`        | Hosting, database and monitoring defaults, dashboards by API, staging footprint, names-only secrets list                                |
+| `backlog-audit`      | Audits, triages and prioritises the GitHub Issues backlog, and governs intake                                                           |
+| `ui-audit`           | Runs the project's UI sweep, triages captures for layout breakage, files on approval                                                    |
+| `ui-probe`           | Probes: press the real screen at both widths, measure it, and prove the check fails with the fix reverted                               |
+| `prose-pass`         | Rewrites long-form in-app prose in the project's voice, with a fact check (own apps only)                                               |
+| `run-project`        | The standard operating model: one orchestrator, a capped set of lanes for PR work, subagents for bounded reads                          |
+| `orchestrator`       | Coordinates lane sessions: assigns work, watches stalls and context, rotates lanes, reports status                                      |
+| `stow`               | Writes a short, overwrite-in-place checkpoint at a PR boundary or before rotating; never committed                                      |
+| `lane`               | Works under an orchestrator: stays inside its brief, waits so the wait notifies, writes its handoff                                     |
 
 Each skill first reads `.claude/fwd/<skill>.md` in the project, if present: the project's own
 tools and rules for that skill, which win where they conflict. Settings the skills read (for

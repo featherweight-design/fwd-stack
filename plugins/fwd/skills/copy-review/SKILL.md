@@ -213,6 +213,59 @@ settled. Grep the copy inventory for what is already in use and match that.
 
 ---
 
+## Copy lives in copy files
+
+Where a project keeps a copy module, the copy-review rules above are only half the job.
+The other half is making sure every string actually lives there, can be changed by anyone,
+and cannot break a test when it does. This section is the cross-app policy.
+
+### 1. All user-facing copy lives in the app's copy files
+
+No strings typed into components. A CI guard fails new inline copy. The guard covers JSX
+text, attributes, ternary arms, template props, server-action messages, consts, and the
+named UI sinks (`toast`, the `setError` family, `alert`, `confirm`). Arbitrary function calls
+are out of scope: a string passed to a helper the guard has no name for is not caught, so
+review still reads the diff for it.
+
+### 2. Tests import strings, they do not repeat them
+
+A test that asserts on copy imports the string from the copy file instead of retyping it,
+so a copy change never breaks a test. A second CI guard fails tests that type copy out by
+hand. It is diff-based at two or more words while old tests are still unmigrated, and
+whole-tree once they are.
+
+In a young app, migrate the old tests up front. It is cheap then and costly later: importing
+a changed row rewrites test literals, and about half of those hit ambiguous twin leaves
+(two keys with the same text) that need a hand fix.
+
+### 3. Editing goes through a copy sheet
+
+Anyone, including a non-engineer, can change copy without opening a code editor.
+
+- **Export.** A script walks the copy modules by AST and writes a spreadsheet CSV with these
+  columns: key, screen, current text, placeholders, new text. A function leaf exports one
+  row per text node, with a read-only condition column saying when that node renders. A leaf
+  the sheet cannot express is marked "edit in code".
+- **Edit.** The editor changes only the new-text column.
+- **Import.** A second script applies only the changed rows. It checks placeholders and the
+  mechanical copy-review rules (em dash, exclamation point, tell words, US spelling, length
+  caps by key kind, stale rows), then runs typecheck and lint, then opens exactly one PR from
+  its own worktree off `origin/main`.
+- **Boundaries.** The CSV is never committed, and no spreadsheet API is used. A round-trip
+  guard in CI fails when export and import disagree. CI and review still gate the PR, so the
+  sheet is a way to propose copy, never a way around the gates.
+
+### 4. Later option, not now
+
+An in-app admin copy editor, only if the sheet proves itself in use.
+
+### 5. Adoption
+
+Each app adopts this as its own story. The scripts are per app, because each app's copy
+module has a different shape. For a reference implementation, ask the orchestrator.
+
+---
+
 ## Voice
 
 The project's voice reference lives in the binding file. Read it before judging a single
