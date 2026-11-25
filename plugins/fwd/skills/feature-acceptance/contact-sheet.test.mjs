@@ -310,15 +310,15 @@ test('applyTheme: cookies on the base, localStorage by an init script before the
     context,
     {
       label: 'jade',
-      cookies: [{ name: 'the99_theme', value: 'jade' }],
-      storage: { 'cc-theme': 'jade' },
+      cookies: [{ name: 'app_theme', value: 'jade' }],
+      storage: { 'app-theme': 'jade' },
     },
     BASE,
   );
   assert.deepEqual(calls.cookies, [
-    { name: 'the99_theme', value: 'jade', url: BASE },
+    { name: 'app_theme', value: 'jade', url: BASE },
   ]);
-  assert.deepEqual(calls.init, [{ 'cc-theme': 'jade' }]);
+  assert.deepEqual(calls.init, [{ 'app-theme': 'jade' }]);
   await applyTheme(context, null, BASE);
   assert.equal(calls.init.length, 1);
 });

@@ -348,7 +348,7 @@ test('themes: label, a way to select the theme, and known keys only', () => {
       [
         {
           label: 'light',
-          storage: { 'cc-theme': 'light' },
+          storage: { 'app-theme': 'light' },
           dataTheme: 'light',
         },
         { label: 'electric', colorScheme: 'dark', dataTheme: 'electric' },
