@@ -119,6 +119,7 @@ Briefs, specs, plans, property tables, trackers, READMEs: anything with no runti
 
 - **Keep a file under roughly 600 lines**, the per-file ceiling for a review to read it whole; split a large plan into an index plus per-PR sub-files.
 - **Split on FILE COUNT, not line count.** Review surface is per-file. Over ~20 files, split (the gate also warns past ~800 runtime lines, excluding prose and generated files, as the weaker signal), and name the PR boundaries **in the plan**, before implementation starts. The natural cut is the plan's task groups (reference.md). If tasks cannot be cut, say so and get agreement before starting.
+- **One exception: a single-surface UI PR.** A PR that covers exactly one screen or one component family, with its tests and contact sheet, may go over the file or line bar. Its body must carry a `## Size` section that says why it is not split and names the single surface it covers. The gate keeps warning on size as before; the exception is satisfied by that section, and the review records that it was checked. Everything else must still split: migrations, APIs, mixed surfaces and multi-concern PRs get no exception, and stacked PRs stay banned.
 
 ## 7 · The pre-open gate
 
