@@ -1,6 +1,5 @@
 // The rules every fwd-stack project shares, whichever preset it starts from. A project's own
-// guards (Concert Crawl's copy lint, The 99's hover-state rule) stay in that project's config,
-// layered after these.
+// guards stay in that project's config, layered after these.
 export const sharedTypeScriptRules = {
   // The `eslint-recommended` override inside typescript-eslint's recommended preset turns this off
   // for TS files and defers to ts(7027), but tsc reports 7027 as an error only under
