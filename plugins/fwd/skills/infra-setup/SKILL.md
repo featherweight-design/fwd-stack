@@ -39,8 +39,8 @@ Vercel Sensitive variables cannot be read back, so an owner who needs a reusable
 ## Neon (Postgres)
 
 - [ ] **Set the compute range per environment, never leave the default.**
-  - Production: fixed **1 CU**. Its page cache keeps reads fast for real users. A small app's CPU typically peaks far below 1 CU, so more than 1 CU buys nothing; check the project's own peak before raising it.
-  - Staging: autoscale **0.25 to 1 CU**. Nobody reads it overnight.
+  - Production: sized per product from its measured load, not left at the provider default floor. Read CPU, RAM and connection peaks in the provider console over several days, then set the range from them. A small app's CPU typically peaks far below 1 CU, so check the project's own peak before raising it. _Why:_ a fixed floor above measured load is the main avoidable compute cost.
+  - Staging: min **0.25 CU**, max **1 CU**, scale to zero after **5 minutes**. Nobody reads it overnight. _Why:_ staging has no real traffic, a ceiling costs nothing until it is used but caps a runaway job, and the same setting on every product keeps spend easy to read.
   - Local dev: **0.25 CU**.
   - Scratch branches: **0.25 CU fixed** (`compute: {min_cu: 0.25, max_cu: 0.25}` on `create_branch`). Never the 1 CU default.
 
