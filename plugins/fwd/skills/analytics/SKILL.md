@@ -1,6 +1,6 @@
 ---
 name: analytics
-description: Use when a new project needs product analytics, when adding or changing a tracked event, a cap, a dashboard or the analytics vendor config, and when reviewing a PR that touches one. The standard pattern for a Next.js project on PostHog's free tier: a closed typed event registry, per-session caps, privacy defaults, and dashboards as code applied by a dry-run-first workflow.
+description: Use when a new project needs product analytics, when adding or changing a tracked event, a cap, a dashboard or the analytics vendor config, and when reviewing a PR that touches one. The standard pattern for a Next.js project on PostHog's free tier: a closed typed event registry, per-session caps, privacy defaults, and dashboards as code applied by the kit's dry-run-first tool.
 ---
 
 # analytics
@@ -90,22 +90,23 @@ free-tier limit is the budget (section 5).
 
 ## 4 · Dashboards as code
 
-Dashboard and insight definitions live in the repo, not in the vendor's UI.
+Dashboard and insight definitions live in the repo, not in the vendor's UI. The kit already ships the
+writer, so a project does not build its own planner, script or workflow.
 
-- **Definitions** are one typed module: dashboards, each with named insights (the query and a
-  description).
-- **A pure planner** compares the definitions with what the project already has and returns one
-  action per item: `create`, `update` or `keep`. Matching is by name. It never deletes.
-- **A script** prints the plan and writes only with an explicit `--apply` flag. No flag is a
-  dry run that makes GET requests only.
-- **A manual workflow** runs the script. `workflow_dispatch` only, with no schedule and no push
-  trigger, an `apply` boolean input that defaults to `false`, and a guard so only the copy on
-  `main` runs. The vendor's personal API key reaches one step, the one that runs the script, as a
-  repository secret. It is a different key from the public one the browser sends events with.
-- **Idempotent.** A second apply reports every item `keep`. The planner treats keys the vendor
-  adds as defaults as no difference, by checking that what the definition sets is contained in
-  what came back.
-- A PR that adds an event adds or updates its insight in the same PR.
+- **Definitions** go in the `posthog` section of `.claude/fwd/monitoring.json`: insights (the query,
+  a name and a description) and the dashboards that hold them. The schema is in
+  [`monitoring-spec.md`](../infra-setup/monitoring-spec.md).
+- **Applied by `monitoring-apply.mjs`** from the `infra-setup` skill, run from the app's root. No
+  flag is a dry run that prints `create`, `update` or `unchanged` per object; `--only posthog`
+  limits it to this vendor; `--apply` writes. Matching is by name, and it never deletes.
+- **The token stays with the owner.** The personal API key is `FWD_POSTHOG_KEY` in
+  `~/.config/fwd/monitoring.env`, outside every repo, with the insight and dashboard read and write
+  scopes. It is not a repository secret and no workflow runs the tool. It is a different key from
+  the public one the browser sends events with.
+- **Idempotent.** A second apply reports every object unchanged; fields PostHog adds on save are
+  ignored in the comparison.
+- A PR that adds an event adds or updates its insight in the spec in the same PR. The owner runs the
+  dry run, then `--apply`.
 
 ## 5 · Vendor and cost
 
@@ -127,9 +128,9 @@ Dashboard and insight definitions live in the repo, not in the vendor's UI.
 - [ ] Add the registry, `SEND_CAP` and `track` (section 1), with the guard test.
 - [ ] Add the SDK init with the privacy config (section 3): GeoIP off, replay off, `before_send`,
       hostname gate.
-- [ ] Add the dashboards module, planner, script and workflow (section 4). Dry-run it, then
-      apply once.
-- [ ] Write `.claude/fwd/analytics.md`: registry path, caps, dashboard module, key names.
+- [ ] Add the PostHog insights and dashboards to `.claude/fwd/monitoring.json` (section 4). Dry-run
+      `monitoring-apply.mjs`, then apply once.
+- [ ] Write `.claude/fwd/analytics.md`: registry path, caps, key names.
 - [ ] Add the budget line (section 5) to the infra record.
 
 ## 7 · What to measure first
@@ -144,3 +145,55 @@ One funnel of 3 to 5 steps, from a stranger's first view to the first real use o
 
 Build that funnel as the first dashboard, then add events only when a question needs one. Count
 events, not people, where ids are not shared across steps.
+
+## 8 · Starter snippet
+
+A neutral starting point for a Next.js client. It follows sections 1 to 3; adapt names to the
+project's registry.
+
+```ts
+// analytics.ts
+import type { PostHog } from 'posthog-js';
+
+let client: PostHog | null = null;
+const sent = new Map<string, number>();
+
+export async function initAnalytics(): Promise<void> {
+  const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  if (!key || location.hostname !== 'www.acme-app.com') return; // dormant elsewhere
+  if (navigator.doNotTrack === '1') return;
+  const { default: posthog } = await import('posthog-js');
+  posthog.init(key, {
+    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+    ip: false, // discard the client IP
+    disable_session_recording: true,
+    person_profiles: 'identified_only',
+    before_send: (event) => redactUrls(event), // strip tokens, queries, hashes
+  });
+  client = posthog;
+}
+
+// Call on sign-in with the auth provider's opaque id. Never an email or name.
+export function identifyUser(opaqueId: string): void {
+  client?.identify(opaqueId);
+}
+
+// Call on sign-out, so the next person on a shared device starts fresh.
+export function resetAnalytics(): void {
+  sent.clear();
+  client?.reset();
+}
+
+// The one capture path: registry-typed names, caps, no personal data.
+export function track<E extends keyof Events>(name: E, props: Events[E]): void {
+  if (!client) return;
+  const count = sent.get(name) ?? 0;
+  if (count >= SEND_CAP[name]) return; // drop silently at the cap
+  sent.set(name, count + 1);
+  client.capture(name, props); // props are closed sets, so nothing personal fits
+}
+```
+
+On the server, send captures with `$process_person_profile: false` and GeoIP disabled in the
+request, and give each call a timeout of a few seconds. The vendor project's own setting to discard
+client IP data should be on as well; confirm it in the project settings.
