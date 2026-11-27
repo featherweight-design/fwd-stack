@@ -134,6 +134,105 @@ No secrets and no legal detail go on the roadmap; a legal item is a neutral titl
 overwrite a field the user changed without telling them. A roadmap that lags the ruling log is a
 broken promise to the user, the same as a stale status.
 
+### Adding a project
+
+A new project joins the roadmap in three steps: pick an id, register it, seed it. The
+project's own orchestrator does all three; `.claude/fwd/orchestrator.md` records the result.
+
+**1. Choose the `projectId`.** Short, lowercase, stable and never reused, for example `acme-app`.
+Epics, stories and to-dos all carry it, and every read filters on it. Renaming an id orphans the
+rows, so retire a project by setting its epics to `done` or `paused` instead.
+
+**2. Register it.** Add one entry to `roadmap.projects` in the machine-wide `~/.claude/fwd.json`,
+keyed by the repository's folder name. `url` and `owner` are already set once per machine; the link
+never goes in the repository.
+
+```json
+{ "roadmap": { "projects": { "acme-app": "acme-app" } } }
+```
+
+**3. Seed it.** Write one epic, a few stories and one to-do into the roadmap's `epics`, `stories`
+and `todos` collections, through the artifact database tool. Every document carries `projectId`,
+`updatedAt` and `updatedBy`, plus:
+
+| Collection | Fields                                                                             | Id convention             |
+| ---------- | ---------------------------------------------------------------------------------- | ------------------------- |
+| `epics`    | `title`, `summary`, `kind`, `status`, `zone`, `order`, `owner`, `links`            | `<projectId>-<slug>`      |
+| `stories`  | `title`, `description`, `epicId`, `status`, `blockedBy`, `order`, `owner`, `links` | `<epic-id>-<slug>`        |
+| `todos`    | `title`, `detail`, `kind`, `status`, `since`, `source`, `blocks`, `order`          | `<projectId>-todo-<slug>` |
+
+- Epic and story `status`: `not-started`, `in-progress`, `blocked`, `paused` or `done`. An epic's
+  `kind` is `epic`, or `gate` for a gate. A to-do's `status` is `open` or `done`, and its `kind` is
+  `decision` or `action`.
+- `zone` (epics) is `before-launch`, `launch` or `after-launch`.
+- `owner` is the owner's lowercase name for the user's own items, and the orchestrator's session
+  name (for example `acme-orchestrator`) for work it owns.
+- `order` is a number; decimals are allowed. `since` is `YYYY-MM-DD`. `links` is an array of
+  `{ "label", "url" }`.
+- `blockedBy` on a story is a to-do id, text, an array of those, or null. `blocks` on a to-do is an
+  array of the story and epic ids it holds up.
+
+```json
+{
+  "collection": "epics",
+  "id": "acme-app-onboarding",
+  "projectId": "acme-app",
+  "title": "Onboarding",
+  "summary": "New users reach a working account.",
+  "kind": "epic",
+  "status": "in-progress",
+  "zone": "before-launch",
+  "order": 1,
+  "owner": "acme-orchestrator",
+  "links": [],
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
+}
+```
+
+```json
+{
+  "collection": "stories",
+  "id": "acme-app-onboarding-signup",
+  "projectId": "acme-app",
+  "title": "Sign-up form",
+  "description": "Email sign-up with confirmation.",
+  "epicId": "acme-app-onboarding",
+  "status": "blocked",
+  "blockedBy": "acme-app-todo-pick-auth",
+  "order": 1,
+  "owner": "acme-orchestrator",
+  "links": [],
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
+}
+```
+
+```json
+{
+  "collection": "todos",
+  "id": "acme-app-todo-pick-auth",
+  "projectId": "acme-app",
+  "title": "Choose the sign-in method",
+  "kind": "decision",
+  "status": "open",
+  "detail": "Recommended: email link. Alternative: passwords.",
+  "since": "2026-01-15",
+  "source": "ruling log, 2026-01-15",
+  "blocks": ["acme-app-onboarding-signup"],
+  "order": 1,
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
+}
+```
+
+**Who writes.** Each project's orchestrator writes only its own project's rows, including the
+user's to-dos for that project. Never write another project's rows. No secrets and no legal
+detail go in any field; a legal item is a neutral title only.
+
+The starter [`templates/fwd/orchestrator.md`](../../../../templates/fwd/orchestrator.md) has a
+Roadmap line to fill in once the project is seeded.
+
 ## 5 · Lanes take orders from the orchestrator, and the orchestrator relays
 
 A lane started from a brief that names the orchestrator treats the brief and the orchestrator's
