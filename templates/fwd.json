@@ -1,0 +1,37 @@
+{
+  "ownApp": false,
+  "uiSweep": "pnpm audit:sweep",
+  "orchestrator": {
+    "maxLanes": 3,
+    "maxOpusLanes": 1,
+    "priorities": "boards/priorities.md"
+  },
+  "sessionBudget": {
+    "warnTokens": 150000,
+    "compactWindow": 300000
+  },
+  "neon": {
+    "protected": {},
+    "readOnlyCompute": {}
+  },
+  "featureAcceptance": {
+    "baseUrl": "http://localhost:3000",
+    "productionUrl": ["https://app.example.com"],
+    "widths": [
+      { "label": "phone", "width": 390, "height": 844, "touch": true },
+      { "label": "desktop", "width": 1300, "height": 900 }
+    ],
+    "pageScope": "main",
+    "loading": ["[aria-busy=\"true\"]"],
+    "inventories": "docs/inventories",
+    "out": "contact-sheets",
+    "packageDir": ".",
+    "aliases": { "@/": "src/" },
+    "tokens": {
+      "declare": ["src/styles/tokens.css"],
+      "read": ["src/**/*.css"],
+      "hex": ["src/components"],
+      "hexFails": false
+    }
+  }
+}

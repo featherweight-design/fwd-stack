@@ -61,10 +61,6 @@ It prints the state the rules depend on: the PR's risk class, the review it need
 
 A PreToolUse hook runs it before `gh pr merge` and before a review request and denies the call on non-zero. It reads the command line and fails closed: a merge it cannot attribute to a PR (a wrapper, substitution, heredoc, unknown flag, merge of the current branch) is denied with the plain form to use, `gh pr merge <number> [--repo owner/name]`. A repository the command names (`--repo`, `-R`, an API path) decides; otherwise it is resolved in the directory a plain `cd <path>` leads to, and outside any checkout it is denied. The hook runs the newest installed gate (`~/.claude/fwd`), so a gate fix reaches running sessions without `/reload-plugins`. A denial names the gate path that ran.
 
-## Change freeze: in effect from 2026-09-18
-
-Do not add or tune a rule in this document without new measured evidence; fix defects in the gate freely. Do not add a check to `risk-checklist-prompt.md` without a class that escaped more than once. Concurrent agents agreeing is one observation, not independent evidence. Evidence: reference.md.
-
 ## 1 · Pushing
 
 A push triggers no review by itself; Claude review is run by you, per the ruling above.
