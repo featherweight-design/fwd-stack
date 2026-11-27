@@ -36,6 +36,7 @@ In order. Starter files are in [`templates/`](templates/README.md).
    - Open the first PR; every change after it is a PR ([`pr-review`](plugins/fwd/skills/pr-review/SKILL.md)).
    - Add `CLAUDE.md` or `AGENTS.md` carrying the subagent grant: append [`templates/agent-docs.md`](templates/agent-docs.md) ([`run-project`](plugins/fwd/skills/run-project/SKILL.md) section 4).
    - Copy the starters: `templates/fwd.json` to `.claude/fwd.json`, `templates/fwd/*.md` to `.claude/fwd/`, `templates/boards/` to `boards/`. Fill in the placeholders ([`orchestrator`](plugins/fwd/skills/orchestrator/SKILL.md), [`run-project`](plugins/fwd/skills/run-project/SKILL.md), [`feature-acceptance`](plugins/fwd/skills/feature-acceptance/SKILL.md)).
+   - To put the project on the roadmap, follow "Adding a project" in [`orchestrator`](plugins/fwd/skills/orchestrator/SKILL.md) section 4; it names the `roadmap.projects` line and the seed rows.
    - Create the label the watchdog treats as waiting on purpose: `gh label create hold --description "Waiting on purpose; not stalled"`.
    - Repo settings: squash merge only, delete head branches on merge, branch protection on `main` requiring the CI gate and a pull request, no auto-merge.
 5. **Infra**: hosting, database and monitoring defaults in [`infra-setup`](plugins/fwd/skills/infra-setup/SKILL.md).
