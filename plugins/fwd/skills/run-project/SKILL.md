@@ -19,7 +19,11 @@ orchestrator itself never builds.
 it before anything else. Its rules add to these and win where they conflict. Settings live under
 `orchestrator` in `.claude/fwd.json`: `maxLanes` (default 3), `maxOpusLanes` (1), `priorities`
 (`boards/priorities.md`) and `rotateAt` (an optional hard ceiling, off by default). The machine
-settings the kit assumes are in §6.
+settings the kit assumes are in §6. Starter files for all of these are in the kit's `templates/`.
+
+`boards/` holds the project's work lists: the priorities file, plus one file per Design track list
+(for example ready, brief locked, backlog) when the project has a Design track. A project with no
+Design track needs only the priorities file.
 
 ## 1 · Lane or subagent: decide by the shape of the work
 

@@ -23,6 +23,27 @@ The design and the reasoning behind it are in the
 
 Planned, in order: the `stack` generator with opt-in capabilities, and a cross-project cost check.
 
+## New project checklist
+
+In order. Starter files are in [`templates/`](templates/README.md).
+
+1. **Clone the kit first**: `git clone https://github.com/featherweight-design/fwd-stack ~/Projects/fwd-stack`. The machine scripts and templates run from the clone.
+2. **Install the plugin and guards** with `machine/switch.sh` ([Setting up a machine](#setting-up-a-machine)). Once per machine.
+3. **Point the user-level `~/.claude/CLAUDE.md` at `pr-review`.** Append [`templates/CLAUDE.user.md`](templates/CLAUDE.user.md); never overwrite an existing file. The policy is the [`pr-review`](plugins/fwd/skills/pr-review/SKILL.md) skill.
+4. **Set up the repo.**
+   - Add `.nvmrc` and `packageManager` at the [baseline](#the-baseline-check) versions, and the shared configs and CI from [Using it in a project](#using-it-in-a-project).
+   - Add `vercel.json` (at least the region and, for new projects, preview deployments off).
+   - Open the first PR; every change after it is a PR ([`pr-review`](plugins/fwd/skills/pr-review/SKILL.md)).
+   - Add `CLAUDE.md` or `AGENTS.md` carrying the subagent grant: append [`templates/agent-docs.md`](templates/agent-docs.md) ([`run-project`](plugins/fwd/skills/run-project/SKILL.md) section 4).
+   - Copy the starters: `templates/fwd.json` to `.claude/fwd.json`, `templates/fwd/*.md` to `.claude/fwd/`, `templates/boards/` to `boards/`. Fill in the placeholders ([`orchestrator`](plugins/fwd/skills/orchestrator/SKILL.md), [`run-project`](plugins/fwd/skills/run-project/SKILL.md), [`feature-acceptance`](plugins/fwd/skills/feature-acceptance/SKILL.md)).
+   - Create the label the watchdog treats as waiting on purpose: `gh label create hold --description "Waiting on purpose; not stalled"`.
+   - Repo settings: squash merge only, delete head branches on merge, branch protection on `main` requiring the CI gate and a pull request, no auto-merge.
+5. **Infra**: hosting, database and monitoring defaults in [`infra-setup`](plugins/fwd/skills/infra-setup/SKILL.md).
+6. **Secret store**: names only in the repo; values in the host's environment settings, set by hand.
+7. **Monitoring**: the app's spec at `.claude/fwd/monitoring.json` ([`infra-setup`](plugins/fwd/skills/infra-setup/SKILL.md)).
+8. **Analytics**: the event registry and caps in [`analytics`](plugins/fwd/skills/analytics/SKILL.md).
+9. **Optional rule files** when the project needs them: `templates/optional/` holds starters for [`copy-review`](plugins/fwd/skills/copy-review/SKILL.md), [`readiness-review`](plugins/fwd/skills/readiness-review/SKILL.md), [`design-review`](plugins/fwd/skills/design-review/SKILL.md) and [`caching`](plugins/fwd/skills/caching/SKILL.md).
+
 ## Using it in a project
 
 The packages are not on npm yet. Until they are, install them from this repo by path:
@@ -233,7 +254,37 @@ marketplace first:
 
 Each skill first reads `.claude/fwd/<skill>.md` in the project, if present: the project's own
 tools and rules for that skill, which win where they conflict. Settings the skills read (for
-example `uiSweep`, `ownApp`) live in `.claude/fwd.json`.
+example `uiSweep`, `ownApp`) live in `.claude/fwd.json`; [`templates/fwd.json`](templates/fwd.json)
+has every per-project key with its default.
+
+#### `.claude/fwd.json` keys
+
+The machine-wide `~/.claude/fwd.json` is read too. Objects merge key by key and the project wins,
+except `neon.protected`, a union a project cannot narrow.
+
+Per-project keys (`.claude/fwd.json`):
+
+| Key                                      | Default                | Read by                      | Meaning                                                                                                               |
+| ---------------------------------------- | ---------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `ownApp`                                 | `false`                | prose-pass                   | `true` marks one of the owner's own apps; prose-pass stops without it                                                 |
+| `uiSweep`                                | none                   | ui-audit, epic-run           | Command that prints a `SweepResult` JSON; ui-audit appends `--tags=`                                                  |
+| `orchestrator.maxLanes`                  | `3`                    | run-project                  | Lane cap                                                                                                              |
+| `orchestrator.maxOpusLanes`              | `1`                    | run-project                  | Opus lane cap                                                                                                         |
+| `orchestrator.priorities`                | `boards/priorities.md` | run-project                  | The ranked work list                                                                                                  |
+| `orchestrator.rotateAt`                  | off                    | run-project, session-budget  | Optional hard context ceiling                                                                                         |
+| `featureAcceptance.*`                    | none                   | feature-acceptance, ui-probe | Tool settings; the field table is in the [`feature-acceptance` skill](plugins/fwd/skills/feature-acceptance/SKILL.md) |
+| `neon.protected`, `neon.readOnlyCompute` | `{}`                   | Neon guard hook              | Read-only branches, and the replica `run_sql` must use there                                                          |
+
+Machine-wide keys (`~/.claude/fwd.json`; a project file may set them too, except `roadmap`):
+
+| Key                           | Default  | Read by                      | Meaning                                             |
+| ----------------------------- | -------- | ---------------------------- | --------------------------------------------------- |
+| `roadmap.url`                 | none     | waiting-on-me                | The roadmap artifact's link; never in a repository  |
+| `roadmap.owner`               | none     | waiting-on-me                | The user's handle in owner fields                   |
+| `roadmap.projects`            | none     | waiting-on-me                | Repo folder name to project id                      |
+| `sessionBudget.warnTokens`    | `150000` | session-budget hook          | Context size of the first warning                   |
+| `sessionBudget.compactWindow` | `300000` | session-budget, lane-context | Match the machine's `autoCompactWindow`             |
+| `neon.protected`              | `{}`     | Neon guard hook              | Branches or endpoints that are read-only everywhere |
 
 State the skills keep, such as the pre-open pass ledger, lives in the plugin's data folder
 (`~/.claude/plugins/data/fwd-fwd-stack/`), never in this repo.

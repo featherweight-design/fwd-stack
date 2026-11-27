@@ -4,7 +4,7 @@ Procedures, snippets and evidence that SKILL.md links to. Read a section only wh
 
 ## Evidence behind the rules
 
-- **Change freeze (from 2026-09-18).** Do not add or tune a rule without new measured evidence. A single case with a clear cause is good evidence for a fix and poor evidence for a threshold.
+- **Change freeze (owner ruling, 2026-09-18).** Do not add or tune a rule without new measured evidence. A single case with a clear cause is good evidence for a fix and poor evidence for a threshold.
   - The gate is big enough to be its own risk: defects were found in it (`truncate` matching a Tailwind class, `productIsTooling` satisfied vacuously by a docs-only PR). Fix gate defects freely; adding rules is what is frozen.
   - Agreement between concurrent agents (same app, day, model) is one observation, not independent evidence.
 - **The 2026-11-08 change.** Over risky PRs that ran a second, external reviewer alongside Claude from 2026-10-30, that reviewer found 33 real defects Claude's review missed, across 15 PRs (3 High, 15 Medium, 15 Low), in ten classes, one check each in `risk-checklist-prompt.md`: check-then-act races (4), old state meeting new code (5), a retirement or filter not swept to siblings (5), a change breaking an existing test (3), new behaviour no test pins (3), UI state not following its inputs (3), scripts/workflows/probes out of order (4), a comment/name/claim the code does not match (4), parsing that accepts impossible input (1), a house rule only the other reviewer had been told (1). 22 of 33 sat outside the diff. Add or tune a check only on a class that escapes more than once.
