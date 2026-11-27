@@ -221,6 +221,7 @@ marketplace first:
 | `usage-report`       | Splits recorded Claude Code usage (weighted tokens) by project, model and session                                                       |
 | `copy-review`        | Writing and reviewing customer-facing copy against the project's voice and locked vocabulary, and where copy lives and how it is edited |
 | `infra-setup`        | Hosting, database and monitoring defaults, dashboards by API, staging footprint, names-only secrets list                                |
+| `analytics`          | Closed event registry, per-session caps, privacy defaults, dashboards as code, free-tier budget                                         |
 | `backlog-audit`      | Audits, triages and prioritises the GitHub Issues backlog, and governs intake                                                           |
 | `ui-audit`           | Runs the project's UI sweep, triages captures for layout breakage, files on approval                                                    |
 | `ui-probe`           | Probes: press the real screen at both widths, measure it, and prove the check fails with the fix reverted                               |
