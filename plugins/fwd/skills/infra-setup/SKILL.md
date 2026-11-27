@@ -36,16 +36,41 @@ Vercel Sensitive variables cannot be read back, so an owner who needs a reusable
 - [ ] **An agent never runs the read command for the owner,** and never asks the owner to paste a value into chat. The kit's secret-guard hook already denies `security find-generic-password -w` and `-g`; leave it as it is.
       _Why:_ the dialog is the only gate between a stored secret and an agent session. Skipping it, or widening trust with Always Allow, removes the one check the owner controls.
 
+## Where each variable lives
+
+| Class                                                      | Where it is set                                                                               | Who sets it                                  |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Public client keys (`NEXT_PUBLIC_*`)                       | Hosting provider environment, per environment scope, not Sensitive                            | Owner; an agent names the variable and scope |
+| Server secrets (API keys, webhook secrets, `DATABASE_URL`) | Hosting provider environment, Production scope, Sensitive                                     | Owner, by hand                               |
+| CI secrets (tokens a workflow reads)                       | GitHub Actions secrets or variables on the repo                                               | Owner, by hand                               |
+| Migration-only URLs                                        | Hosting provider environment, Production scope alone; owner's local Keychain copy             | Owner, by hand                               |
+| Local dev                                                  | Local env file with development values only; reusable production secrets stay in the Keychain | Each developer                               |
+
+Production secrets never enter chat or the repo, and the owner rotates them by hand. Record each by name in `docs/secrets-inventory.md` (see [Secrets inventory](#secrets-inventory-names-only)).
+
+## Standard third-party packages
+
+A new project starts with these. They are not in `baseline.json` yet: the baseline check warns on any listed package whose major differs, so adding one holds every existing project to a major nobody has verified. Pin the major in the project, then add it to `baseline.json` once the first project settles on it.
+
+| Need                | Package                                        |
+| ------------------- | ---------------------------------------------- |
+| Auth                | `@clerk/nextjs` (see [Auth](#auth-clerk))      |
+| Product analytics   | `posthog-js`, `posthog-node` (see `analytics`) |
+| Transactional email | `resend`                                       |
+| Database driver     | `@neondatabase/serverless`                     |
+
 ## Neon (Postgres)
 
 - [ ] **Set the compute range per environment, never leave the default.**
-  - Production: sized per product from its measured load, not left at the provider default floor. Read CPU, RAM and connection peaks in the provider console over several days, then set the range from them. A small app's CPU typically peaks far below 1 CU, so check the project's own peak before raising it. _Why:_ a fixed floor above measured load is the main avoidable compute cost.
-  - Staging: min **0.25 CU**, max **1 CU**, scale to zero after **5 minutes**. Nobody reads it overnight. _Why:_ staging has no real traffic, a ceiling costs nothing until it is used but caps a runaway job, and the same setting on every product keeps spend easy to read.
+  - Production: start a small app at autoscaling min **0.5 CU**, max **2 CU**, then size from its measured load rather than leaving the provider default. _Why:_ a fixed floor above measured load is the main avoidable compute cost, and a ceiling of 2 CU absorbs a burst without a resize.
+    - **Raise on evidence from the weekly check**, never on a feeling. In the console's monitoring view, read CPU, RAM and connection peaks over at least seven days, and read CU-hours in the weekly cost check. Raise the max when CPU sits near the ceiling for sustained stretches or connections hit the limit. Raise the min when users see slow first requests that are not cold starts, or when RAM use is near the floor and the cache hit rate drops. Lower either when the peak stays under half the setting for a month.
+  - Staging: the default, min **0.25 CU**, max **1 CU**, scale to zero after **5 minutes**. Nobody reads it overnight. _Why:_ staging has no real traffic, a ceiling costs nothing until it is used but caps a runaway job, and the same setting on every product keeps spend easy to read.
   - Local dev: **0.25 CU**.
   - Scratch branches: **0.25 CU fixed** (`compute: {min_cu: 0.25, max_cu: 0.25}` on `create_branch`). Never the 1 CU default.
 
   _Why:_ a branch inherits 1 CU unless told otherwise. Forgotten scratch branches at 1 CU can run up a real bill in a month.
 
+- [ ] **Every Neon step has a console or API path when the Neon MCP is not connected.** Console: Project, Branches, select the branch, Compute, Edit (set min and max CU, and the suspend timeout). API, with a token the owner creates and exports for the one command (owner): `PATCH /projects/{project_id}/endpoints/{endpoint_id}` with `autoscaling_limit_min_cu`, `autoscaling_limit_max_cu` and `suspend_timeout_seconds`; `POST /projects/{project_id}/branches` with an `endpoints` entry carrying the same limits and an `expires_at` for a scratch branch; `DELETE /projects/{project_id}/branches/{branch_id}` to remove one. Read the endpoint back to confirm. Check field names against Neon's API reference before use.
 - [ ] **Scale-to-zero on** (the suspend timeout left at the 5-minute default, never disabled). _Why:_ a sleeping compute costs nothing. The first request after sleep costs about a second.
 - [ ] **No cron at or under the 5-minute suspend window, against any database.** _Why:_ a 5-minute sweep keeps a database awake around the clock, which can be most of its compute bill. Moving the sweep to every 30 minutes lets it sleep.
 - [ ] **Delete every scratch branch when its work merges, and set a TTL when creating one.** Before deleting, confirm by branch id that it is not production, staging or local-dev. _Why:_ branches beyond the included 10 are billed each month, and a forgotten one keeps its compute and storage.
@@ -61,6 +86,8 @@ Vercel Sensitive variables cannot be read back, so an owner who needs a reusable
   pnpm dlx vercel api /v9/projects/<name> -X PATCH -F previewDeploymentsDisabled=true --scope <team>
   pnpm dlx vercel api /v9/projects/<name> --scope <team> | jq .previewDeploymentsDisabled
   ```
+
+  Without the Vercel CLI, send the same PATCH and GET to `https://api.vercel.com/v9/projects/<name>?teamId=<team id>` with a token the owner exports for that one command, or use the project's settings page in the dashboard.
 
   Turn previews back on only if the project actually uses them. Leave git deployments off too unless the project deploys from git (`git.deploymentEnabled: false`, or `gitProviderOptions.createDeployments: "disabled"`). _Why:_ every branch push otherwise builds, and Build CPU is billed. Previews have had to be switched off by hand after the fact more than once.
 
@@ -124,7 +151,31 @@ Sentry dashboards, PostHog insights and dashboards, and Better Stack status page
 
   In a dry run a vendor without its token is skipped with a note. `--apply` refuses to start until every vendor it would touch has one. _Why:_ the tokens can edit live monitoring, so they stay with the owner and out of every file an agent writes.
 
-## Email (transactional sending domain)
+## Auth (Clerk)
+
+Flow design and error handling live in [`auth-flows`](../auth-flows/SKILL.md). This section is the account setup.
+
+- [ ] **One Clerk instance per environment:** a development instance for local and preview, a production instance for the live domain. _Why:_ a shared instance mixes test users with real ones and ties local keys to production data.
+- [ ] **Keys per instance (owner):** `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (public, not Sensitive) and `CLERK_SECRET_KEY` (Sensitive, Production scope on the production project). The production instance has its own keys; development keys never ship to production.
+- [ ] **Bot protection on** for sign-up in the production instance. _Why:_ open sign-up gets scripted account creation within days of launch.
+- [ ] **Allowed domains:** set the production instance's home URL and allowed origins to the live domain only. _Why:_ a stray origin lets another site host the sign-in.
+- [ ] **Webhook secret (owner):** create the endpoint in the Clerk dashboard, point it at the app's webhook route, and set its signing secret as `CLERK_WEBHOOK_SIGNING_SECRET` (Sensitive). The route verifies the signature before it reads the body and fails closed when the secret is unset.
+
+## Uptime (Better Stack)
+
+- [ ] **Add one uptime monitor per production app on its health route** (`/api/health`). Interval **3 minutes** for a small app, a **30 second** confirmation period before it pages, and one alert channel the owner reads on a phone (push or SMS first, email second). Staging gets no monitor.
+- [ ] **Keep the health route off the database.** It returns 200 from the app process alone. A second route (`/api/health/deep`) checks the database and is polled by hand or at 30 minutes or slower, never at the shallow interval. _Why:_ a poll under the 5-minute suspend window keeps a serverless database awake around the clock (see Neon).
+- [ ] **No writer exists for this yet.** `monitoring-apply.mjs` manages heartbeats and status pages and looks up existing monitors by name; it does not create them. Create the monitor in the Better Stack console, or with its Uptime API and the owner's token (owner). Add it to the status page by name afterward through the spec.
+
+## Email (transactional sending domain, Resend)
+
+- [ ] **Verify the sending domain in Resend (owner):** add the domain in the dashboard, publish the DNS records it shows (SPF, DKIM and the return-path record), and wait for Verified. Send from a subdomain (`mail.acme-app.com`) so a reputation problem stays off the main domain.
+- [ ] **Set the sender** as `Name <hello@mail.acme-app.com>`, in one place in code, read from a variable. _Why:_ a send from an unverified domain is rejected.
+- [ ] **Webhook (owner):** add an endpoint for bounce and complaint events, set its signing secret as `RESEND_WEBHOOK_SECRET` (Sensitive), and verify the signature in the route. Suppress addresses that bounce or complain.
+- [ ] **API key (owner):** `RESEND_API_KEY`, Sensitive, Production scope, sending access only.
+- [ ] **Plan:** the free plan covers development and a small launch. Move to a paid plan before launch if the app needs more than one verified domain, a higher daily send limit or longer log retention. Check the current limits on Resend's pricing page first; they change.
+
+Authentication of the domain:
 
 - [ ] **SPF** on the sending domain naming the provider. _Why:_ unauthenticated mail lands in spam or is rejected.
 - [ ] **DKIM** with the provider's keys. _Why:_ it is the signature receivers actually trust.
