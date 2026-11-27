@@ -152,21 +152,25 @@ never goes in the repository.
 ```
 
 **3. Seed it.** Write one epic, a few stories and one to-do into the roadmap's `epics`, `stories`
-and `todos` collections, through the artifact database tool. Every document carries:
+and `todos` collections, through the artifact database tool. Every document carries `projectId`,
+`updatedAt` and `updatedBy`, plus:
 
-| Collection | Required fields                                                                           | Id convention             |
-| ---------- | ----------------------------------------------------------------------------------------- | ------------------------- |
-| `epics`    | `projectId`, `title`, `status`, `owner`, `zone`, `order`                                  | `<projectId>-<slug>`      |
-| `stories`  | `projectId`, `epicId`, `title`, `status`, `owner`, `zone`, `order`, `blockedBy` (or null) | `<epic-id>-<slug>`        |
-| `todos`    | `projectId`, `title`, `status`, `kind`, `detail`, `since`, `blocks`                       | `<projectId>-todo-<slug>` |
+| Collection | Fields                                                                             | Id convention             |
+| ---------- | ---------------------------------------------------------------------------------- | ------------------------- |
+| `epics`    | `title`, `summary`, `kind`, `status`, `zone`, `order`, `owner`, `links`            | `<projectId>-<slug>`      |
+| `stories`  | `title`, `description`, `epicId`, `status`, `blockedBy`, `order`, `owner`, `links` | `<epic-id>-<slug>`        |
+| `todos`    | `title`, `detail`, `kind`, `status`, `since`, `source`, `blocks`, `order`          | `<projectId>-todo-<slug>` |
 
-- `status` for epics and stories: `not-started`, `in-progress`, `blocked`, `done` or `paused`.
-  For to-dos: `open` or `done`. `kind` is `decision` or `action`.
-- `owner` is `roadmap.owner` for work only the user can do, otherwise the lane or role doing it.
-- `zone` is where the work sits against launch, `pre-launch` or `post-launch`. `order` is an
-  integer; lower sorts first within its parent.
-- `since` is the date the to-do opened. `blocks` lists the story and epic ids it holds up; a story
-  names its blocking to-do in `blockedBy`.
+- Epic and story `status`: `not-started`, `in-progress`, `blocked`, `paused` or `done`. An epic's
+  `kind` is `epic`, or `gate` for a gate. A to-do's `status` is `open` or `done`, and its `kind` is
+  `decision` or `action`.
+- `zone` (epics) is `before-launch`, `launch` or `after-launch`.
+- `owner` is the owner's lowercase name for the user's own items, and the orchestrator's session
+  name (for example `acme-orchestrator`) for work it owns.
+- `order` is a number; decimals are allowed. `since` is `YYYY-MM-DD`. `links` is an array of
+  `{ "label", "url" }`.
+- `blockedBy` on a story is a to-do id, text, an array of those, or null. `blocks` on a to-do is an
+  array of the story and epic ids it holds up.
 
 ```json
 {
@@ -174,10 +178,15 @@ and `todos` collections, through the artifact database tool. Every document carr
   "id": "acme-app-onboarding",
   "projectId": "acme-app",
   "title": "Onboarding",
+  "summary": "New users reach a working account.",
+  "kind": "epic",
   "status": "in-progress",
-  "owner": "orchestrator",
-  "zone": "pre-launch",
-  "order": 1
+  "zone": "before-launch",
+  "order": 1,
+  "owner": "acme-orchestrator",
+  "links": [],
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
 }
 ```
 
@@ -186,13 +195,16 @@ and `todos` collections, through the artifact database tool. Every document carr
   "collection": "stories",
   "id": "acme-app-onboarding-signup",
   "projectId": "acme-app",
-  "epicId": "acme-app-onboarding",
   "title": "Sign-up form",
+  "description": "Email sign-up with confirmation.",
+  "epicId": "acme-app-onboarding",
   "status": "blocked",
-  "owner": "orchestrator",
-  "zone": "pre-launch",
+  "blockedBy": "acme-app-todo-pick-auth",
   "order": 1,
-  "blockedBy": "acme-app-todo-pick-auth"
+  "owner": "acme-orchestrator",
+  "links": [],
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
 }
 ```
 
@@ -202,11 +214,15 @@ and `todos` collections, through the artifact database tool. Every document carr
   "id": "acme-app-todo-pick-auth",
   "projectId": "acme-app",
   "title": "Choose the sign-in method",
-  "status": "open",
   "kind": "decision",
+  "status": "open",
   "detail": "Recommended: email link. Alternative: passwords.",
   "since": "2026-01-15",
-  "blocks": ["acme-app-onboarding-signup"]
+  "source": "ruling log, 2026-01-15",
+  "blocks": ["acme-app-onboarding-signup"],
+  "order": 1,
+  "updatedAt": "2026-01-15T09:00:00Z",
+  "updatedBy": "acme-orchestrator"
 }
 ```
 
