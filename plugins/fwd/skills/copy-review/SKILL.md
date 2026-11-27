@@ -195,9 +195,13 @@ Disqualifying on sight:
 - "Whether you're X or Y…"
 - "It's not just X, it's Y"
 - Naming a feature and then restating it in the next clause
-- Hedges: simply, just, easily, seamlessly, effortlessly
 - Exclamation points in system copy
 - Selling the user on the thing they already chose to do
+
+**Hedge words are a style note only.** Hedge words (simply, just, easily, seamlessly,
+effortlessly) may be mentioned when the reviewer is writing or rewriting the copy. They are
+never a finding on text the owner wrote or kept, never block a PR, and never need a
+fix-or-decline entry under pr-review.
 
 **Release notes are exempt from the naming-then-explaining tell.** A changelog names a
 feature and then says what it does; that is the format.
